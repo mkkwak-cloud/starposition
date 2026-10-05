@@ -86,6 +86,7 @@ const $ = id => document.getElementById(id);
 const RAD = Math.PI / 180;
 const cv = document.getElementById('c'), g = cv.getContext('2d');
 let W, H, dpr;
+let instDone = false; // 방금 설치했으면 이 크롬 화면에서는 앱을 돌리지 않음(맨 위에 둬야 아래 코드가 읽을 수 있음)
 let bgBlack = false; // 카메라 모드 배경: false=카메라 영상, true=검정 (폰에 저장)
 try { bgBlack = localStorage.getItem('starbg') === 'black'; } catch (e) { }
 let camFov = 62, savedCal = null; // camFov: 카메라(센서) 모드의 시야각(어림값). 보정값과 함께 폰에 저장
@@ -155,6 +156,7 @@ function drawGround() { // 화면 각 점이 가리키는 고도를 거꾸로 �
   gx.putImageData(im, 0, 0); g.imageSmoothingEnabled = true; g.drawImage(gc, 0, 0, w * st, h * st);
 }
 function draw() {
+  if (instDone) return; // 설치 직후 크롬 화면에서는 그리지 않음
   const date = now(), L = lst(date);
   setCam();
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -362,7 +364,8 @@ function onOrient(e) {
 function hint(t) { $('hint').textContent = t || ''; }
 const videoOn = () => !!$('v').srcObject && !bgBlack;
 function showBg() { $('v').style.display = videoOn() ? 'block' : 'none'; $('bBg').textContent = bgBlack ? '영상 바탕' : '어두운 바탕'; $('bBg').style.display = S.cam && $('v').srcObject ? '' : 'none'; }
-async function camOn(auto) { // auto: 열 때 자동 시도(센서 허용이 터치를 요구하면 첫 터치를 기다림)
+async function camOn(auto) {
+  if (instDone) return; // auto: 열 때 자동 시도(센서 허용이 터치를 요구하면 첫 터치를 기다림)
   const needPerm = typeof DeviceOrientationEvent !== 'undefined' && !!DeviceOrientationEvent.requestPermission;
   try {
     if (needPerm && !(auto && /Android/i.test(navigator.userAgent))) {
@@ -581,7 +584,8 @@ $('bFull').onclick = () => {
 $('bCam').onclick = () => S.cam ? camOff() : camOn();
 $('bReset').onclick = e => { S.offAz = S.offAlt = 0; e.target.style.display = 'none'; saveCal(); if (sv) applyOrientation0(); };
 $('bNow').onclick = () => { S.offMin = 0; $('sl').value = 0; draw(); };
-function getGps(silent) { // silent: 열 때 자동 호출(실패해도 조용히 기존 위치 유지)
+function getGps(silent) {
+  if (instDone) return; // silent: 열 때 자동 호출(실패해도 조용히 기존 위치 유지)
   if (!navigator.geolocation) { if (!silent) alert('이 브라우저는 위치 기능이 없습니다.'); return; }
   navigator.geolocation.getCurrentPosition(p => {
     S.lat = p.coords.latitude; S.lon = p.coords.longitude; S.place = '내 위치'; draw();
@@ -601,14 +605,18 @@ resize();
 // 앱 설치 버튼: 크롬이면 바로 설치창, 카톡·다른 앱 안이면 크롬으로 넘김, 그 외는 방법 안내
 const SITE = 'https://mkkwak-cloud.github.io/starposition/';
 let instPrompt = null;
-function ovDone(msg) { $('ovT').textContent = msg; $('ovGo').style.display = 'none'; $('ovNo').textContent = '이 화면에서 계속 보기'; $('ov').style.display = 'flex'; }
+function ovDone(msg, final) {
+  $('ovT').textContent = msg; $('ovGo').style.display = 'none'; $('ov').style.display = 'flex';
+  if (final) { instDone = true; $('ovNo').style.display = 'none'; try { if (S.cam) camOff(); } catch (e) { } try { document.exitFullscreen && document.exitFullscreen(); } catch (e) { } }
+  else $('ovNo').textContent = '이 화면에서 계속 보기';
+}
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => { });
 const ua = navigator.userAgent, inKakao = /KAKAOTALK/i.test(ua), inOther = /NAVER\(inapp|Instagram|FBAN|FBAV|Line\//i.test(ua);
 let instWait = null; // 눌렀는데 설치창 준비가 아직이면, 준비되는 순간 바로 띄움(누른 효력이 몇 초 남아 있음)
 async function runPrompt() {
   const e = instPrompt; instPrompt = null; instWait = null; e.prompt();
   const r = await e.userChoice;
-  if (installMode && r.outcome === 'accepted') { ovDone('설치가 끝났습니다! 이 크롬 화면은 닫고, 홈 화면의 별자리 아이콘(앱)으로 시작해 주세요.'); try { window.close(); } catch (er) { } } // 크롬 화면은 보통 안 닫히니 완료 안내를 남김
+  if (installMode && r.outcome !== 'dismissed') { ovDone('설치가 끝났습니다! 이 크롬 화면은 닫고, 홈 화면의 별자리 아이콘(앱)으로 시작해 주세요.', true); try { window.close(); } catch (er) { } } // 크롬 화면은 보통 안 닫히니 완료 안내를 남김
 }
 function doInstall(onFail) {
   if (instPrompt) return runPrompt();
@@ -621,7 +629,7 @@ if (inKakao && !isApp && !/install=1/.test(location.search)) {
   let tried = false; try { tried = sessionStorage.getItem('kakaoGo') === '1'; sessionStorage.setItem('kakaoGo', '1'); } catch (e) { }
   if (!tried) location.href = 'kakaotalk://web/openExternal?url=' + encodeURIComponent(SITE + '?install=1');
 }
-addEventListener('appinstalled', () => { if (installMode) ovDone('설치가 끝났습니다! 이 크롬 화면은 닫고, 홈 화면의 별자리 아이콘(앱)으로 시작해 주세요.'); $('bInst').style.display = 'none'; hint('설치됐습니다. 홈 화면의 별자리 아이콘으로 열어 주세요.'); setTimeout(() => hint(''), 6000); });
+addEventListener('appinstalled', () => { if (installMode) ovDone('설치가 끝났습니다! 이 크롬 화면은 닫고, 홈 화면의 별자리 아이콘(앱)으로 시작해 주세요.', true); $('bInst').style.display = 'none'; hint('설치됐습니다. 홈 화면의 별자리 아이콘으로 열어 주세요.'); setTimeout(() => hint(''), 6000); });
 if (installMode) {
   $('ov').style.display = 'flex';
   $('ovGo').onclick = () => inKakao ? (location.href = 'kakaotalk://web/openExternal?url=' + encodeURIComponent(SITE + '?install=1')) : doInstall(() => { $('ovT').textContent = (/iphone|ipad|ipod/i.test(ua) ? '아이폰은 아래 공유 버튼 → "홈 화면에 추가"를 눌러 주세요.' : '이 브라우저에서는 설치창을 바로 띄울 수 없습니다. 이미 설치했다면 홈 화면의 별자리 아이콘으로 여세요. 아직이면 브라우저 메뉴(⋮) → "홈 화면에 추가" 또는 "앱 설치"를 눌러 주세요.'); });
