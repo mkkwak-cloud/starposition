@@ -36,8 +36,6 @@ button.on{background:var(--accent);color:#04101f;border-color:var(--accent)}
 .info input[type=range]{flex:1;min-width:0;width:100%}
 #when{white-space:nowrap}
 .dim{color:var(--dim);font-size:13px}
-#ov{position:fixed;inset:0;z-index:30;background:rgba(5,10,24,.94);display:none;flex-direction:column;align-items:center;justify-content:center;gap:16px;text-align:center;padding:24px}
-#ov b{font-size:20px}#ov .big{font-size:20px;padding:14px 34px;background:var(--accent);color:#04101f;border-color:var(--accent)}
 #when{font-weight:600}
 /* 가로로 돌려 화면 높이가 낮을 때: 설명을 숨기고 슬라이더를 나란히 놓아 하늘을 덜 가림 */
 @media (max-height:500px){
@@ -56,7 +54,6 @@ button.on{background:var(--accent);color:#04101f;border-color:var(--accent)}
 <video id="v" playsinline autoplay muted></video>
 <canvas id="c"></canvas>
 <div id="hint" class="hint"></div>
-<div id="ov"><img src="icon-192.png" width="96" height="96" alt=""><b>별자리 하늘을 설치할까요?</b><div class="dim" id="ovT">화면 아무 데나 누르면 설치창이 뜹니다. 설치창의 "설치"를 누르면 홈 화면에 바로가기가 생깁니다.</div><button class="big" id="ovGo">설치하기</button><button id="ovNo">나중에</button></div>
 <div id="ivb"></div>
 <div id="panel" class="panel"><button class="x" id="pClose">✕</button><div id="pBody"></div></div>
 <div class="bar" id="bar">
@@ -911,8 +908,7 @@ function getGps(silent) { // silent: 열 때 자동 호출(실패해도 조용�
 $('bGps').onclick = () => getGps(false);
 // 마지막으로 가져온 위치를 먼저 쓰고, 터치 폰에서 그냥 열면 새 위치를 자동으로 가져옴
 try { const l = JSON.parse(localStorage.getItem('starloc') || 'null'); if (l && isFinite(l[0]) && isFinite(l[1]) && !location.hash) { S.lat = l[0]; S.lon = l[1]; S.place = '내 위치(저장값)'; } } catch (e) { }
-const installMode = /install=1/.test(location.search) && !isApp; // 카톡에서 넘어온 설치 화면에서는 허용창(위치·카메라)을 띄우지 않음
-if (navigator.maxTouchPoints > 0 && !location.hash && !installMode) getGps(true);
+if (navigator.maxTouchPoints > 0 && !location.hash) getGps(true);
 setInterval(() => { if (!S.offMin) draw(); }, 30000);
 const sim = /sim=([-\d.]+),([-\d.]+),([-\d.]+)/.exec(location.hash); // 확인용: 가짜 센서값
 if (sim) { S.cam = false; setFov(62); applyOrientation(+sim[1], +sim[2], +sim[3]); }
@@ -925,7 +921,7 @@ let instPrompt = null;
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => { });
 const ua = navigator.userAgent, inKakao = /KAKAOTALK/i.test(ua), inOther = /NAVER\(inapp|Instagram|FBAN|FBAV|Line\//i.test(ua);
 let instWait = null; // 눌렀는데 설치창 준비가 아직이면, 준비되는 순간 바로 띄움(누른 효력이 몇 초 남아 있음)
-async function runPrompt() { const e = instPrompt; instPrompt = null; instWait = null; $('ov').style.display = 'none'; e.prompt(); await e.userChoice; }
+async function runPrompt() { const e = instPrompt; instPrompt = null; instWait = null; e.prompt(); await e.userChoice; }
 function doInstall(onFail) {
   if (instPrompt) return runPrompt();
   instWait = true; hint('설치 준비 중입니다. 잠시만요…');
@@ -938,28 +934,25 @@ if (inKakao && !isApp && !/install=1/.test(location.search)) {
   if (!tried) location.href = 'kakaotalk://web/openExternal?url=' + encodeURIComponent(SITE + '?install=1');
 }
 addEventListener('appinstalled', () => { $('bInst').style.display = 'none'; hint('설치됐습니다. 홈 화면의 별자리 아이콘으로 열어 주세요.'); setTimeout(() => hint(''), 6000); });
-// 카톡에서 넘어온 경우(?install=1): 큰 안내 화면 → 한 번 누르면 바로 설치창
-if (/install=1/.test(location.search) && navigator.maxTouchPoints > 0 && !isApp) {
-  $('ov').style.display = 'flex';
-  $('ovNo').onclick = () => { $('ov').style.display = 'none'; getGps(true); if (!S.cam) camOn(true); };
-  $('ovGo').onclick = () => doInstall(() => { $('ovT').textContent = '이 브라우저에서는 설치창을 바로 띄울 수 없습니다. 브라우저 메뉴(⋮) → "홈 화면에 추가" 또는 "앱 설치"를 눌러 주세요.'; });
-  $('ov').onclick = e => { if (e.target.id !== 'ovNo') $('ovGo').onclick(); }; // 화면 아무 데나 눌러도 설치창
-  addEventListener('appinstalled', () => { $('ov').style.display = 'none'; });
-}
 if (navigator.maxTouchPoints > 0 && !isApp) {
   $('bInst').style.display = '';
+  if (/install=1/.test(location.search)) $('bInst').classList.add('on'); // 카톡에서 넘어왔으면 '앱 설치' 버튼을 눈에 띄게
   $('bInst').onclick = async () => {
     if (instPrompt) { runPrompt(); return; }
     if (inKakao) { location.href = 'kakaotalk://web/openExternal?url=' + encodeURIComponent(SITE + '?install=1'); return; }
     if (inOther) { hint('이 앱 안에서는 설치가 안 됩니다. 메뉴에서 "다른 브라우저로 열기"를 눌러 크롬으로 열어 주세요.'); }
     else if (!/^https?:$/.test(location.protocol)) { location.href = SITE; return; }
     else if (/iphone|ipad|ipod/i.test(ua)) hint('아래 공유 버튼 → "홈 화면에 추가"를 눌러 주세요.');
-    else { doInstall(() => { hint('브라우저 메뉴(⋮) → "홈 화면에 추가" 또는 "앱 설치"를 눌러 주세요.'); setTimeout(() => hint(''), 9000); }); return; }
+    else { doInstall(() => { hint('이미 설치했다면 홈 화면(앱 목록)의 별자리 아이콘으로 여세요. 아직이면 브라우저 메뉴(⋮) → "홈 화면에 추가" 또는 "앱 설치"를 눌러 주세요.'); setTimeout(() => hint(''), 12000); }); return; }
     setTimeout(() => hint(''), 9000);
   };
 }
+// 이미 설치돼 있으면 크롬은 설치창을 다시 띄우지 않으므로, 알아보고 안내(지원하는 브라우저에서만)
+if (navigator.getInstalledRelatedApps && !isApp) navigator.getInstalledRelatedApps().then(a => {
+  if (a && a.length) { $('bInst').style.display = 'none'; hint('이미 설치돼 있습니다. 홈 화면(앱 목록)의 별자리 아이콘으로 열어 주세요.'); setTimeout(() => hint(''), 8000); }
+}).catch(() => { });
 // 폰(터치 기기)에서 그냥 열면 자동으로 카메라+센서를 켠다. 터치가 있어야 허용되는 기기는 첫 터치에 켠다.
-if (navigator.maxTouchPoints > 0 && !location.hash && !installMode) camOn(true);
+if (navigator.maxTouchPoints > 0 && !location.hash) camOn(true);
 const tp = /tap=([-\d.]+),([-\d.]+)/.exec(location.hash); // 확인용: 그 자리를 누른 것처럼 동작
 if (tp) try { tapAt(+tp[1], +tp[2]); } catch (e) { hint('오류: ' + e.message); }
 </script>
