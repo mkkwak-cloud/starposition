@@ -589,7 +589,8 @@ function getGps(silent) { // silent: 열 때 자동 호출(실패해도 조용�
 $('bGps').onclick = () => getGps(false);
 // 마지막으로 가져온 위치를 먼저 쓰고, 터치 폰에서 그냥 열면 새 위치를 자동으로 가져옴
 try { const l = JSON.parse(localStorage.getItem('starloc') || 'null'); if (l && isFinite(l[0]) && isFinite(l[1]) && !location.hash) { S.lat = l[0]; S.lon = l[1]; S.place = '내 위치(저장값)'; } } catch (e) { }
-if (navigator.maxTouchPoints > 0 && !location.hash) getGps(true);
+const installMode = /install=1/.test(location.search) && !isApp; // 카톡에서 넘어온 설치 화면에서는 허용창(위치·카메라)을 띄우지 않음
+if (navigator.maxTouchPoints > 0 && !location.hash && !installMode) getGps(true);
 setInterval(() => { if (!S.offMin) draw(); }, 30000);
 const sim = /sim=([-\d.]+),([-\d.]+),([-\d.]+)/.exec(location.hash); // 확인용: 가짜 센서값
 if (sim) { S.cam = false; setFov(62); applyOrientation(+sim[1], +sim[2], +sim[3]); }
@@ -611,7 +612,7 @@ addEventListener('appinstalled', () => { $('bInst').style.display = 'none'; hint
 // 카톡에서 넘어온 경우(?install=1): 큰 안내 화면 → 한 번 누르면 바로 설치창
 if (/install=1/.test(location.search) && navigator.maxTouchPoints > 0 && !isApp) {
   $('ov').style.display = 'flex';
-  $('ovNo').onclick = () => { $('ov').style.display = 'none'; };
+  $('ovNo').onclick = () => { $('ov').style.display = 'none'; getGps(true); if (!S.cam) camOn(true); };
   $('ovGo').onclick = async () => {
     if (instPrompt) { $('ov').style.display = 'none'; instPrompt.prompt(); await instPrompt.userChoice; instPrompt = null; }
     else $('ovT').textContent = '이 브라우저에서는 설치창을 바로 띄울 수 없습니다. 브라우저 메뉴(⋮) → "홈 화면에 추가" 또는 "앱 설치"를 눌러 주세요.';
@@ -632,7 +633,7 @@ if (navigator.maxTouchPoints > 0 && !isApp) {
   };
 }
 // 폰(터치 기기)에서 그냥 열면 자동으로 카메라+센서를 켠다. 터치가 있어야 허용되는 기기는 첫 터치에 켠다.
-if (navigator.maxTouchPoints > 0 && !location.hash) camOn(true);
+if (navigator.maxTouchPoints > 0 && !location.hash && !installMode) camOn(true);
 const tp = /tap=([-\d.]+),([-\d.]+)/.exec(location.hash); // 확인용: 그 자리를 누른 것처럼 동작
 if (tp) try { tapAt(+tp[1], +tp[2]); } catch (e) { hint('오류: ' + e.message); }
 </script>
