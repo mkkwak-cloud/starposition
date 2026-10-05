@@ -36,6 +36,8 @@ button.on{background:var(--accent);color:#04101f;border-color:var(--accent)}
 .info input[type=range]{flex:1;min-width:0;width:100%}
 #when{white-space:nowrap}
 .dim{color:var(--dim);font-size:13px}
+#toast{position:fixed;left:16px;right:16px;top:34%;z-index:40;display:none;background:rgba(127,214,255,.96);color:#04101f;border-radius:18px;padding:22px 18px;text-align:center;font-size:18px;font-weight:700;line-height:1.5;box-shadow:0 6px 30px rgba(0,0,0,.5)}
+#toast small{display:block;font-size:13px;font-weight:500;margin-top:6px}
 #ov{position:fixed;inset:0;z-index:30;background:#050a18;display:none;flex-direction:column;align-items:center;justify-content:center;gap:16px;text-align:center;padding:24px}
 #ov b{font-size:22px}#ov .big{font-size:22px;padding:16px 44px;background:var(--accent);color:#04101f;border-color:var(--accent);font-weight:700}
 #when{font-weight:600}
@@ -56,6 +58,7 @@ button.on{background:var(--accent);color:#04101f;border-color:var(--accent)}
 <video id="v" playsinline autoplay muted></video>
 <canvas id="c"></canvas>
 <div id="hint" class="hint"></div>
+<div id="toast"></div>
 <div id="ov"><img src="icon-192.png" width="96" height="96" alt=""><b>별자리 하늘</b><div class="dim" id="ovT">폰에 설치하면 앱처럼 꽉 찬 화면으로 쓸 수 있습니다.</div><button class="big" id="ovGo">앱 설치</button><button id="ovNo">설치 없이 바로 보기</button></div>
 <div id="ivb"></div>
 <div id="panel" class="panel"><button class="x" id="pClose">✕</button><div id="pBody"></div></div>
@@ -969,6 +972,14 @@ if (navigator.maxTouchPoints > 0 && !isApp) {
     else { doInstall(() => { hint('이미 설치했다면 홈 화면(앱 목록)의 별자리 아이콘으로 여세요. 아직이면 브라우저 메뉴(⋮) → "홈 화면에 추가" 또는 "앱 설치"를 눌러 주세요.'); setTimeout(() => hint(''), 12000); }); return; }
     setTimeout(() => hint(''), 9000);
   };
+}
+// 설치한 앱을 처음 열었을 때: 설치 완료 메시지(브라우저 화면은 설치와 함께 사라지므로 여기서 알려 줌)
+if (isApp) {
+  let seen = false; try { seen = localStorage.getItem('starwelcome') === '1'; localStorage.setItem('starwelcome', '1'); } catch (e) { }
+  if (!seen) {
+    const t = $('toast'); t.innerHTML = '✅ 설치가 완료되었습니다!<small>이제 홈 화면의 별자리 아이콘으로 언제든 열 수 있어요.</small>'; t.style.display = 'block';
+    const hide = () => { t.style.display = 'none'; }; t.onclick = hide; setTimeout(hide, 7000);
+  }
 }
 // 이미 설치돼 있으면 크롬은 설치창을 다시 띄우지 않으므로, 알아보고 안내(지원하는 브라우저에서만)
 if (navigator.getInstalledRelatedApps && !isApp) navigator.getInstalledRelatedApps().then(a => {
