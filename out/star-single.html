@@ -429,7 +429,7 @@ function draw() {
   const date = now(), L = lst(date);
   setCam();
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
-  if (S.cam) g.clearRect(0, 0, W, H); else { g.fillStyle = '#050a18'; g.fillRect(0, 0, W, H); }
+  g.fillStyle = S.cam ? '#000' : '#050a18'; g.fillRect(0, 0, W, H);
   taken.length = 0; bodyHits.length = 0;
 
   // 지평선(고도 0) 선과 땅
@@ -559,13 +559,16 @@ function applyOrientation(alpha, beta, gamma) {
   const a = alpha * RAD, b = beta * RAD, c = gamma * RAD;
   const cA = Math.cos(a), sA = Math.sin(a), cB = Math.cos(b), sB = Math.sin(b), cG = Math.cos(c), sG = Math.sin(c);
   const v = [-(cG * sA * sB + cA * sG), -(sA * sG - cA * cG * sB), -cB * cG]; // 뒷면 카메라가 보는 방향
-  sv = sv ? sv.map((o, i) => o + (v[i] - o) * 0.3) : v;
+  if (sv) { const d = Math.hypot(v[0] - sv[0], v[1] - sv[1], v[2] - sv[2]), f = Math.min(0.5, 0.03 + d * 5); // 조금 흔들리면 강하게 눌러 잡고, 크게 돌리면 빨리 따라감
+    sv = sv.map((o, i) => o + (v[i] - o) * f); } else sv = v;
   const n = Math.hypot(...sv);
   S.alt = Math.max(-89, Math.min(89, Math.asin(sv[2] / n) / RAD + S.offAlt));
   S.az = (((Math.atan2(sv[0], sv[1]) / RAD) + S.offAz) % 360 + 360) % 360;
   if (!wantDraw) { wantDraw = true; requestAnimationFrame(() => { wantDraw = false; draw(); }); }
 }
+let gotAbs = false;
 function onOrient(e) {
+  if (e.type === 'deviceorientationabsolute') gotAbs = true; else if (gotAbs) return; // 안드로이드: 북쪽 기준 값이 오면 그것만 사용
   if (e.alpha == null && e.webkitCompassHeading == null) return;
   const alpha = e.webkitCompassHeading != null ? 360 - e.webkitCompassHeading : e.alpha; // 아이폰은 나침반 값 사용
   applyOrientation(alpha, e.beta, e.gamma);
@@ -577,8 +580,7 @@ async function camOn() {
       const r = await DeviceOrientationEvent.requestPermission();
       if (r !== 'granted') { hint('방향센서 허용이 필요합니다. 설정에서 허용해 주세요.'); return; }
     }
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
-    const v = $('v'); v.srcObject = stream; v.style.display = 'block';
+    // 카메라 영상은 띄우지 않고 검은 배경에 방향센서만 사용
   } catch (err) {
     hint('카메라를 켜지 못했습니다. 주소가 https 인지, 카메라 허용을 했는지 확인해 주세요.'); return;
   }
@@ -591,7 +593,7 @@ async function camOn() {
 function camOff() {
   const v = $('v'); if (v.srcObject) v.srcObject.getTracks().forEach(t => t.stop()); v.srcObject = null; v.style.display = 'none';
   removeEventListener('deviceorientationabsolute', onOrient); removeEventListener('deviceorientation', onOrient);
-  S.cam = false; sv = null; $('bCam').classList.remove('on'); $('bCam').textContent = '카메라'; hint(''); draw();
+  S.cam = false; sv = null; gotAbs = false; $('bCam').classList.remove('on'); $('bCam').textContent = '카메라'; hint(''); draw();
 }
 
 // ---- 눌러서 정보 보기 ----
