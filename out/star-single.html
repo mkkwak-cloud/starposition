@@ -858,6 +858,11 @@ let instPrompt = null;
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => { });
 const ua = navigator.userAgent, inKakao = /KAKAOTALK/i.test(ua), inOther = /NAVER\(inapp|Instagram|FBAN|FBAV|Line\//i.test(ua);
 addEventListener('beforeinstallprompt', e => { e.preventDefault(); instPrompt = e; });
+// 카톡 안에서 열렸으면 열리자마자 크롬(기본 브라우저)으로 넘김. 한 번만 시도(안 되면 "앱 설치" 버튼으로)
+if (inKakao && !isApp && !/install=1/.test(location.search)) {
+  let tried = false; try { tried = sessionStorage.getItem('kakaoGo') === '1'; sessionStorage.setItem('kakaoGo', '1'); } catch (e) { }
+  if (!tried) location.href = 'kakaotalk://web/openExternal?url=' + encodeURIComponent(SITE + '?install=1');
+}
 addEventListener('appinstalled', () => { $('bInst').style.display = 'none'; hint('설치됐습니다. 홈 화면의 별자리 아이콘으로 열어 주세요.'); setTimeout(() => hint(''), 6000); });
 // 카톡에서 넘어온 경우(?install=1): 큰 안내 화면 → 한 번 누르면 바로 설치창
 if (/install=1/.test(location.search) && navigator.maxTouchPoints > 0 && !isApp) {
