@@ -13,6 +13,14 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
 .bar h1{font-size:16px;margin:0 4px 0 0;white-space:nowrap}
 button,select{font:inherit;font-size:13px;color:var(--text);background:rgba(30,50,95,.8);border:1px solid var(--line);border-radius:999px;padding:6px 11px;white-space:nowrap}
 #v{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;display:none}
+.panel{z-index:5;position:fixed;left:0;right:0;bottom:0;max-height:62vh;overflow:auto;background:rgba(8,16,36,.96);border-top:1px solid var(--line);border-radius:18px 18px 0 0;padding:14px 16px max(16px,env(safe-area-inset-bottom));display:none;touch-action:pan-y}
+.panel h2{margin:0 36px 2px 0;font-size:20px}
+.panel .sub{color:var(--dim);font-size:13px;margin-bottom:8px}
+.panel table{border-collapse:collapse;width:100%;font-size:14px;margin:8px 0}
+.panel td{padding:5px 0;border-bottom:1px solid #1b2c52;vertical-align:top}
+.panel td:first-child{color:var(--dim);width:92px;white-space:nowrap}
+.panel p{margin:8px 0 0;line-height:1.55;font-size:14px}
+.panel .x{position:absolute;right:10px;top:10px;padding:4px 11px;font-size:16px}
 .hint{position:fixed;left:12px;right:12px;top:96px;font-size:13px;color:#ffd9a6;text-shadow:0 0 4px #000;pointer-events:none}
 button.on{background:var(--accent);color:#04101f;border-color:var(--accent)}
 .info{position:fixed;left:0;right:0;bottom:0;padding:18px 12px max(12px,env(safe-area-inset-bottom));background:linear-gradient(transparent,var(--panel) 35%);font-size:14px;overflow:hidden}
@@ -27,6 +35,7 @@ button.on{background:var(--accent);color:#04101f;border-color:var(--accent)}
 <video id="v" playsinline autoplay muted></video>
 <canvas id="c"></canvas>
 <div id="hint" class="hint"></div>
+<div id="panel" class="panel"><button class="x" id="pClose">✕</button><div id="pBody"></div></div>
 <div class="bar">
   <h1>★ 별자리 하늘</h1>
   <button id="bGps">내 위치</button>
@@ -43,6 +52,7 @@ button.on{background:var(--accent);color:#04101f;border-color:var(--accent)}
 </div>
 <script src="skydata.js"></script>
 <script src="astronomy.browser.min.js"></script>
+<script src="info.js"></script>
 <script>
 const $ = id => document.getElementById(id);
 const RAD = Math.PI / 180;
@@ -98,7 +108,7 @@ function draw() {
   setCam();
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   if (S.cam) g.clearRect(0, 0, W, H); else { g.fillStyle = '#050a18'; g.fillRect(0, 0, W, H); }
-  taken.length = 0;
+  taken.length = 0; bodyHits.length = 0;
 
   // 지평선(고도 0) 선과 땅
   g.strokeStyle = '#3d6ab0'; g.lineWidth = 1.5; g.beginPath();
@@ -129,8 +139,13 @@ function draw() {
       g.stroke();
     }
   }
+  if (sel && sel.t === 'con') {
+    g.strokeStyle = 'rgba(255,224,120,.95)'; g.lineWidth = 2.6; g.beginPath();
+    for (const seg of sel.c.lines) { let prev = null; for (const [ra, dec] of seg) { const q = P(ra, dec, L).p; if (q && prev) { g.moveTo(prev[0], prev[1]); g.lineTo(q[0], q[1]); } prev = q; } }
+    g.stroke();
+  }
   // 별
-  const pos = new Array(SKY.stars.length);
+  const pos = starPos = new Array(SKY.stars.length);
   for (let i = 0; i < SKY.stars.length; i++) {
     const [ra, dec, mag, bv] = SKY.stars[i];
     const q = P(ra, dec, L); pos[i] = q;
@@ -152,10 +167,12 @@ function draw() {
     }
     // 밝은 별 이름
     g.font = '12px Pretendard,"Malgun Gothic",sans-serif'; g.fillStyle = 'rgba(255,240,200,.9)'; g.textAlign = 'left';
-    for (const [i, n] of SKY.labels) {
+    for (const [i, n] of SKY.named) {
+      if (SKY.stars[i][2] >= 2.6) continue;
       const q = pos[i]; if (q.p && q.h[0] > 0 && q.p[0] > 0 && q.p[0] < W && q.p[1] > 70 && q.p[1] < H - 90) tryText(n, q.p[0] + 7, q.p[1] - 5, 'left');
     }
   }
+  drawSel(date, L);
   // 동서남북
   g.font = '700 20px Pretendard,"Malgun Gothic",sans-serif'; g.textAlign = 'center';
   [['북', 0], ['동', 90], ['남', 180], ['서', 270]].forEach(([n, a]) => {
@@ -165,8 +182,8 @@ function draw() {
   const dir = ['북', '북동', '동', '남동', '남', '남서', '서', '북서'][Math.round(S.az / 45) % 8];
   document.getElementById('when').textContent = date.toLocaleString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
   document.getElementById('where').textContent = `${S.place} (위도 ${S.lat.toFixed(2)}, 경도 ${S.lon.toFixed(2)}) · 보는 방향: ${dir}쪽 고도 ${Math.round(S.alt)}°`;
+  if (sel && Date.now() - lastPanel > 1000) renderPanel(date, L);
 }
-
 
 // ---- 글자 겹침 방지 ----
 const taken = [];
@@ -190,6 +207,7 @@ function drawBodies(date, L) {
     if (!q.p) continue;
     const [x, y] = q.p;
     if (x < -30 || x > W + 30 || y < -30 || y > H + 30) continue;
+    bodyHits.push({ id, ko, x, y });
     g.globalAlpha = q.h[0] < 0 ? 0.4 : 1;
     let note = '';
     if (id === 'Sun') {
@@ -254,12 +272,129 @@ function camOff() {
   S.cam = false; sv = null; $('bCam').classList.remove('on'); $('bCam').textContent = '카메라'; hint(''); draw();
 }
 
+// ---- 눌러서 정보 보기 ----
+let starPos = [], sel = null, lastPanel = 0;
+const bodyHits = [];
+const namedMap = new Map(SKY.named.map(([i, nm, en]) => [i, [nm, en]]));
+const conById = Object.fromEntries(SKY.cons.map(c => [c.id, c]));
+const DIR8 = ['북', '북동', '동', '남동', '남', '남서', '서', '북서'];
+const dirName = a => DIR8[Math.round(a / 45) % 8] + '쪽';
+const esc = t => String(t).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+function whereText(h) {
+  const [alt, az] = h, pos = `${dirName(az)} ${Math.round(az)}° 방향 · 고도 ${Math.round(alt)}°`;
+  return alt < 0 ? '지평선 아래라 지금은 안 보임 (' + pos + ')' : pos;
+}
+function timeText(t, now) {
+  if (!t) return '없음';
+  const d = t.date, days = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - new Date(now.getFullYear(), now.getMonth(), now.getDate())) / 86400000);
+  return (days === 0 ? '오늘 ' : days === 1 ? '내일 ' : (d.getMonth() + 1) + '/' + d.getDate() + ' ') + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+function magWord(m) { return m <= 0 ? '하늘에서 손꼽히게 밝은 별' : m <= 1.5 ? '아주 밝은 별' : m <= 3 ? '밝은 별' : m <= 4.5 ? '맨눈으로 보이는 별' : '어두운 별 (깜깜한 곳에서만 보임)'; }
+function colorWord(bv) { return bv < 0 ? '푸른빛 (표면이 매우 뜨거움)' : bv < 0.4 ? '푸른빛 도는 흰색' : bv < 0.8 ? '노란빛 도는 흰색 (태양과 비슷)' : bv < 1.2 ? '주황빛' : '붉은빛 (비교적 차가운 별)'; }
+function bestMonth(ra) { // 저녁 9시 무렵 남쪽 하늘 가장 높이 올라오는 달 (어림값)
+  const sunRa = (ra - 135 + 720) % 360, d = new Date(2001, 2, 21 + Math.round(sunRa / 360 * 365.25));
+  const m = d.getMonth() + 1; return `${m}월 저녁 9시 무렵 (${m >= 3 && m <= 5 ? '봄' : m >= 6 && m <= 8 ? '여름' : m >= 9 && m <= 11 ? '가을' : '겨울'})`;
+}
+function describe(date, L) {
+  const obs = new Astronomy.Observer(S.lat, S.lon, 0), rows = [];
+  if (sel.t === 'body') {
+    const id = sel.id, info = BODY_INFO[id];
+    const eq = Astronomy.Equator(id, date, obs, false, true), h = P(eq.ra * 15, eq.dec, L).h;
+    rows.push(['지금 위치', whereText(h)]);
+    if (id === 'Moon') {
+      const ph = Astronomy.MoonPhase(date);
+      rows.push(['달 모양', '밝은 면 ' + Math.round((1 - Math.cos(ph * RAD)) / 2 * 100) + '% · ' + (ph < 180 ? '차오르는 중' : '이지러지는 중')]);
+      rows.push(['다음 보름달', timeText(Astronomy.SearchMoonPhase(180, date, 40), date).replace(/ \d\d:\d\d$/, '')]);
+      rows.push(['다음 그믐(삭)', timeText(Astronomy.SearchMoonPhase(0, date, 40), date).replace(/ \d\d:\d\d$/, '')]);
+      rows.push(['지구와 거리', '약 ' + Math.round(eq.dist * 149597870.7 / 10000) + '만 km']);
+    } else {
+      rows.push(['지구와 거리', '약 ' + eq.dist.toFixed(2) + ' AU (빛으로 약 ' + (eq.dist * 8.317).toFixed(1) + '분 · 1AU=지구~태양 거리)']);
+    }
+    if (id !== 'Sun') { try { rows.push(['밝기', Astronomy.Illumination(id, date).mag.toFixed(1) + '등급 (작을수록 밝음)']); } catch (e) { } }
+    rows.push(['뜨는 시각', timeText(Astronomy.SearchRiseSet(id, obs, +1, date, 2), date)]);
+    rows.push(['지는 시각', timeText(Astronomy.SearchRiseSet(id, obs, -1, date, 2), date)]);
+    return { title: info.en, sub: id === 'Sun' ? '항성' : id === 'Moon' ? '지구의 위성' : '행성', rows, text: info.text };
+  }
+  if (sel.t === 'star') {
+    const [ra, dec, mag, bv, cid, bayer] = SKY.stars[sel.i], nm = namedMap.get(sel.i), c = conById[cid], h = horiz(ra, dec, L);
+    const title = nm ? nm[0] : bayer && c ? bayer + ' ' + c.en : '이름 없는 별';
+    rows.push(['지금 위치', whereText(h)]);
+    rows.push(['밝기', mag.toFixed(1) + '등급 · ' + magWord(mag)]);
+    rows.push(['색', colorWord(bv)]);
+    if (c) rows.push(['별자리', c.ko]);
+    return { title, sub: nm && nm[1] && nm[1] !== nm[0] ? nm[1] : '별', rows, text: '' };
+  }
+  const c = sel.c, h = horiz(c.ra, c.dec, L), maxAlt = 90 - Math.abs(S.lat - c.dec);
+  rows.push(['지금 위치', whereText(h)]);
+  rows.push(['한국에서', maxAlt <= 0 ? '이 위치에서는 볼 수 없음' : c.dec > 90 - S.lat ? '일 년 내내 지평선 위에 있음' : maxAlt < 20 ? '지평선 가까이 낮게만 보임' : '계절에 따라 뜨고 짐']);
+  if (maxAlt > 0) rows.push(['잘 보이는 때', bestMonth(c.ra)]);
+  if (c.top.length) rows.push(['밝은 별', c.top.map(([n, m]) => `${n}(${m.toFixed(1)}등급)`).join(', ')]);
+  return { title: c.ko, sub: c.en + ' · 별자리', rows, text: CON_INFO[c.id] || '' };
+}
+function renderPanel(date, L) {
+  lastPanel = Date.now();
+  date = date || now(); if (L === undefined) L = lst(date);
+  const d = describe(date, L);
+  $('pBody').innerHTML = `<h2>${esc(d.title)}</h2><div class="sub">${esc(d.sub)}</div><table>${d.rows.map(r => `<tr><td>${esc(r[0])}</td><td>${esc(r[1])}</td></tr>`).join('')}</table>${d.text ? '<p>' + esc(d.text) + '</p>' : ''}`;
+  $('panel').style.display = 'block';
+}
+function closePanel() { sel = null; $('panel').style.display = 'none'; draw(); }
+function drawSel() {
+  if (!sel) return;
+  let p = null;
+  if (sel.t === 'body') { const b = bodyHits.find(b => b.id === sel.id); if (b) p = [b.x, b.y]; }
+  else if (sel.t === 'star') p = starPos[sel.i] && starPos[sel.i].p;
+  if (p) { g.strokeStyle = '#ffe07a'; g.lineWidth = 2; g.beginPath(); g.arc(p[0], p[1], 17, 0, 6.283); g.stroke(); }
+}
+function segDist(px, py, a, b) {
+  const dx = b[0] - a[0], dy = b[1] - a[1], l2 = dx * dx + dy * dy;
+  let t = l2 ? ((px - a[0]) * dx + (py - a[1]) * dy) / l2 : 0; t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - a[0] - t * dx, py - a[1] - t * dy);
+}
+function tapAt(x, y) {
+  const L = lst(now());
+  let best = null, bd = 34;
+  for (const b of bodyHits) { const d = Math.hypot(b.x - x, b.y - y); if (d < bd) { bd = d; best = { t: 'body', id: b.id }; } }
+  if (!best && S.names) { // 별자리 이름 글자를 누른 경우
+    for (const c of SKY.cons) {
+      const q = P(c.ra, c.dec, L);
+      if (q.p && Math.abs(q.p[0] - x) < 6 + c.ko.length * 8 && Math.abs(q.p[1] - y - 5) < 14) { best = { t: 'con', c }; break; }
+    }
+  }
+  if (!best) {
+    bd = 1e9;
+    for (let i = 0; i < SKY.stars.length; i++) {
+      const q = starPos[i], m = SKY.stars[i][2]; if (!q || !q.p || m > 5) continue;
+      const d = Math.hypot(q.p[0] - x, q.p[1] - y); if (d > 22) continue;
+      const score = d + m * 2.5 - (namedMap.has(i) ? 8 : 0);
+      if (score < bd) { bd = score; best = { t: 'star', i }; }
+    }
+  }
+  if (!best) {
+    bd = 26;
+    for (const c of SKY.cons) {
+      const q = P(c.ra, c.dec, L);
+      if (q.p) { const d = Math.hypot(q.p[0] - x, q.p[1] - y) - 14; if (d < bd) { bd = d; best = { t: 'con', c }; } }
+      for (const seg of c.lines) {
+        let prev = null;
+        for (const [ra, dec] of seg) { const p = P(ra, dec, L).p; if (p && prev) { const d = segDist(x, y, prev, p); if (d < bd) { bd = d; best = { t: 'con', c }; } } prev = p; }
+      }
+    }
+  }
+  if (!best) { if (sel) closePanel(); return; }
+  sel = best; renderPanel(); draw();
+}
+
 // ---- 화면 크기·조작 ----
 function resize() { dpr = devicePixelRatio || 1; W = innerWidth; H = innerHeight; cv.width = W * dpr; cv.height = H * dpr; draw(); }
 addEventListener('resize', resize);
 const ptrs = new Map(); let pinch = 0;
-cv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, [e.clientX, e.clientY]); pinch = 0; });
-cv.addEventListener('pointerup', e => ptrs.delete(e.pointerId));
+let tap = null;   // 짧게 눌렀다 떼면 '누르기', 움직였으면 '끌기'
+cv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, [e.clientX, e.clientY]); pinch = 0; tap = ptrs.size === 1 ? { x: e.clientX, y: e.clientY, t: Date.now() } : null; });
+cv.addEventListener('pointerup', e => {
+  if (tap && ptrs.size === 1 && Date.now() - tap.t < 600 && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) < 10) tapAt(e.clientX, e.clientY);
+  tap = null; ptrs.delete(e.pointerId);
+});
 cv.addEventListener('pointercancel', e => ptrs.delete(e.pointerId));
 cv.addEventListener('pointermove', e => {
   const old = ptrs.get(e.pointerId); if (!old) return;
@@ -284,6 +419,7 @@ cv.addEventListener('wheel', e => { e.preventDefault(); S.fov = Math.max(20, Mat
 $('bLines').onclick = e => { S.lines = !S.lines; e.target.classList.toggle('on', S.lines); draw(); };
 $('bNames').onclick = e => { S.names = !S.names; e.target.classList.toggle('on', S.names); draw(); };
 $('sl').oninput = e => { S.offMin = +e.target.value; draw(); };
+$('pClose').onclick = closePanel;
 $('bCam').onclick = () => S.cam ? camOff() : camOn();
 $('bReset').onclick = e => { S.offAz = S.offAlt = 0; e.target.style.display = 'none'; if (sv) applyOrientation0(); };
 function applyOrientation0() { const n = Math.hypot(...sv); S.alt = Math.max(-89, Math.min(89, Math.asin(sv[2] / n) / RAD + S.offAlt)); S.az = (((Math.atan2(sv[0], sv[1]) / RAD) + S.offAz) % 360 + 360) % 360; draw(); }
@@ -297,6 +433,8 @@ setInterval(() => { if (!S.offMin) draw(); }, 30000);
 const sim = /sim=([-\d.]+),([-\d.]+),([-\d.]+)/.exec(location.hash); // 확인용: 가짜 센서값
 if (sim) { S.cam = false; S.fov = 62; applyOrientation(+sim[1], +sim[2], +sim[3]); }
 resize();
+const tp = /tap=([-\d.]+),([-\d.]+)/.exec(location.hash); // 확인용: 그 자리를 누른 것처럼 동작
+if (tp) try { tapAt(+tp[1], +tp[2]); } catch (e) { hint('오류: ' + e.message); }
 </script>
 </body>
 </html>

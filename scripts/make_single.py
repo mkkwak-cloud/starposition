@@ -3,7 +3,7 @@ import os, re
 O = os.path.join(os.path.dirname(__file__), '..', 'out')
 rd = lambda f: open(os.path.join(O, f), encoding='utf8').read()
 html = rd('index.html')
-for name in ('skydata.js', 'astronomy.browser.min.js'):
+for name in ('skydata.js', 'astronomy.browser.min.js', 'info.js'):
     js = rd(name)
     assert '</script' not in js.lower()
     tag = '<script src="%s"></script>' % name
