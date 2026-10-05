@@ -567,7 +567,8 @@ $('bFit').onclick = fitToCross;
 $('bBg').onclick = () => { bgBlack = !bgBlack; try { localStorage.setItem('starbg', bgBlack ? 'black' : 'video'); } catch (e) { } showBg(); draw(); };
 // 전체화면: 이미 앱처럼 열렸으면 숨김 / 지원하면 전환 / 아이폰은 설치 방법 안내
 const isApp = matchMedia('(display-mode: fullscreen)').matches || matchMedia('(display-mode: standalone)').matches || navigator.standalone;
-const installMode = /install=1/.test(location.search) && navigator.maxTouchPoints > 0 && !isApp; // 카톡에서 넘어온 설치 전용 화면
+let skipInst = false; try { skipInst = localStorage.getItem('starskip') === '1'; } catch (e) { }
+const installMode = navigator.maxTouchPoints > 0 && !isApp && !skipInst && !/[?&]app=1/.test(location.search); // 폰 브라우저에서 처음 열면 설치 전용 화면(주소의 ?install=1 에 기대지 않음). "설치 없이 바로 보기"를 한 번 누르면 다시 안 뜸
 const de = document.documentElement, canFull = !!(de.requestFullscreen || de.webkitRequestFullscreen);
 if (isApp) $('bFull').style.display = 'none';
 else if (!canFull) $('bFull').textContent = '앱처럼 쓰기';
@@ -623,8 +624,8 @@ if (inKakao && !isApp && !/install=1/.test(location.search)) {
 addEventListener('appinstalled', () => { if (installMode) ovDone('설치됐습니다! 홈 화면(앱 목록)의 별자리 아이콘으로 여세요.'); $('bInst').style.display = 'none'; hint('설치됐습니다. 홈 화면의 별자리 아이콘으로 열어 주세요.'); setTimeout(() => hint(''), 6000); });
 if (installMode) {
   $('ov').style.display = 'flex';
-  $('ovGo').onclick = () => doInstall(() => { $('ovT').textContent = '이 브라우저에서는 설치창을 바로 띄울 수 없습니다. 이미 설치했다면 홈 화면의 별자리 아이콘으로 여세요. 아직이면 브라우저 메뉴(⋮) → "홈 화면에 추가" 또는 "앱 설치"를 눌러 주세요.'; });
-  $('ovNo').onclick = () => { $('ov').style.display = 'none'; getGps(true); if (!S.cam) camOn(true); };
+  $('ovGo').onclick = () => inKakao ? (location.href = 'kakaotalk://web/openExternal?url=' + encodeURIComponent(SITE + '?install=1')) : doInstall(() => { $('ovT').textContent = (/iphone|ipad|ipod/i.test(ua) ? '아이폰은 아래 공유 버튼 → "홈 화면에 추가"를 눌러 주세요.' : '이 브라우저에서는 설치창을 바로 띄울 수 없습니다. 이미 설치했다면 홈 화면의 별자리 아이콘으로 여세요. 아직이면 브라우저 메뉴(⋮) → "홈 화면에 추가" 또는 "앱 설치"를 눌러 주세요.'); });
+  $('ovNo').onclick = () => { try { localStorage.setItem('starskip', '1'); } catch (e) { } $('ov').style.display = 'none'; getGps(true); if (!S.cam) camOn(true); };
 }
 if (navigator.maxTouchPoints > 0 && !isApp) {
   $('bInst').style.display = '';
