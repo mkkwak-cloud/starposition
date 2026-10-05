@@ -4,6 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>별자리 하늘</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#050a18">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="별자리">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
 :root{--bg:#050a18;--panel:rgba(10,18,40,.82);--line:#27406e;--text:#e6eeff;--dim:#8ea3c9;--accent:#7fd6ff}
 *{box-sizing:border-box}
@@ -43,11 +51,14 @@ button.on{background:var(--accent);color:#04101f;border-color:var(--accent)}
   <button id="bNames" class="on">이름</button>
   <button id="bNow">지금</button>
   <button id="bCam">카메라</button>
+  <button id="bFull">전체화면</button>
+  <button id="bFit" style="display:none">십자에 맞추기</button>
   <button id="bReset" style="display:none">보정 초기화</button>
 </div>
 <div class="info">
   <div id="where" class="dim"></div>
   <div class="row"><span id="when"></span><input id="sl" type="range" min="-720" max="720" step="5" value="0"></div>
+  <div class="row"><span class="dim" style="white-space:nowrap">화면 넓이 <b id="fovT"></b></span><input id="fovSl" type="range" min="20" max="160" step="1"></div>
   <div class="dim">화면을 끌면 시선이 움직이고, 두 손가락(또는 휠)으로 확대·축소. 슬라이더는 지금부터 ±12시간. 카메라를 켠 뒤 화면을 끌면 방향이 어긋난 만큼 보정됩니다.</div>
 </div>
 <script src="skydata.js"></script>
@@ -58,6 +69,13 @@ const $ = id => document.getElementById(id);
 const RAD = Math.PI / 180;
 const cv = document.getElementById('c'), g = cv.getContext('2d');
 let W, H, dpr;
+let camFov = 62, savedCal = null; // camFov: 카메라(센서) 모드의 시야각(어림값). 보정값과 함께 폰에 저장
+try { savedCal = JSON.parse(localStorage.getItem('starcal') || 'null'); } catch (e) { }
+function saveCal() { try { localStorage.setItem('starcal', JSON.stringify({ offAz: S.offAz, offAlt: S.offAlt, camFov })); } catch (e) { } }
+function setFov(f) {
+  S.fov = Math.max(20, Math.min(160, f)); if (S.cam) camFov = S.fov;
+  $('fovSl').value = S.fov; $('fovT').textContent = Math.round(S.fov) + '°';
+}
 // 기본 위치: 성남. 내 위치 버튼을 누르면 폰 GPS 값으로 바뀜.
 const S = { lat: 37.42, lon: 127.13, place: '성남(기본값)', az: 180, alt: 35, fov: 100, lines: true, names: true, offMin: 0, cam: false, offAz: 0, offAlt: 0 };
 
@@ -173,6 +191,11 @@ function draw() {
     }
   }
   drawSel(date, L);
+  if (S.cam) { // 화면 가운데 십자(폰이 향한 곳)
+    g.strokeStyle = 'rgba(255,224,120,.8)'; g.lineWidth = 1.5; g.beginPath();
+    g.moveTo(W / 2 - 16, H / 2); g.lineTo(W / 2 - 5, H / 2); g.moveTo(W / 2 + 5, H / 2); g.lineTo(W / 2 + 16, H / 2);
+    g.moveTo(W / 2, H / 2 - 16); g.lineTo(W / 2, H / 2 - 5); g.moveTo(W / 2, H / 2 + 5); g.lineTo(W / 2, H / 2 + 16); g.stroke();
+  }
   // 동서남북
   g.font = '700 20px Pretendard,"Malgun Gothic",sans-serif'; g.textAlign = 'center';
   [['북', 0], ['동', 90], ['남', 180], ['서', 270]].forEach(([n, a]) => {
@@ -232,22 +255,37 @@ function drawBodies(date, L) {
 }
 
 // ---- 카메라 + 방향센서 ----
-let sv = null, wantDraw = false;       // sv: 폰 뒷면이 향한 방향(동·북·위 단위벡터, 부드럽게 보정)
+let sv = null, st = null, wantDraw = false;  // sv: 폰 뒷면이 향한 방향, st: 화면 위쪽이 향한 방향(둘 다 동·북·위 단위벡터, 부드럽게 보정)
+let gotAbs = false, warned = false;
+function screenAngle() { return (((screen.orientation && screen.orientation.angle != null ? screen.orientation.angle : window.orientation || 0) % 360) + 360) % 360; }
 function applyOrientation(alpha, beta, gamma) {
   const a = alpha * RAD, b = beta * RAD, c = gamma * RAD;
   const cA = Math.cos(a), sA = Math.sin(a), cB = Math.cos(b), sB = Math.sin(b), cG = Math.cos(c), sG = Math.sin(c);
   const v = [-(cG * sA * sB + cA * sG), -(sA * sG - cA * cG * sB), -cB * cG]; // 뒷면 카메라가 보는 방향
-  if (sv) { const d = Math.hypot(v[0] - sv[0], v[1] - sv[1], v[2] - sv[2]), f = Math.min(0.5, 0.03 + d * 5); // 조금 흔들리면 강하게 눌러 잡고, 크게 돌리면 빨리 따라감
-    sv = sv.map((o, i) => o + (v[i] - o) * f); } else sv = v;
-  const n = Math.hypot(...sv);
-  S.alt = Math.max(-89, Math.min(89, Math.asin(sv[2] / n) / RAD + S.offAlt));
-  S.az = (((Math.atan2(sv[0], sv[1]) / RAD) + S.offAz) % 360 + 360) % 360;
+  const tY = [-sA * cB, cA * cB, sB], tX = [cA * cG - sA * sB * sG, sA * cG + cA * sB * sG, -cB * sG]; // 폰 위쪽·오른쪽 방향
+  const ang = screenAngle(), t = ang === 90 ? tX : ang === 180 ? tY.map(x => -x) : ang === 270 ? tX.map(x => -x) : tY; // 화면 위쪽(가로로 돌리면 바뀜)
+  let f = 1;
+  if (sv) { const d = Math.hypot(v[0] - sv[0], v[1] - sv[1], v[2] - sv[2]); f = Math.min(0.5, 0.03 + d * 5); } // 조금 흔들리면 강하게 눌러 잡고, 크게 돌리면 빨리 따라감
+  sv = sv ? sv.map((o, i) => o + (v[i] - o) * f) : v;
+  st = st ? st.map((o, i) => o + (t[i] - o) * f) : t;
+  applyOrientation0();
+}
+function rawView() { // 보정 전, 센서가 가리키는 [고도, 방위]. 하늘 꼭대기 근처에서는 화면 위쪽 방향으로 방위를 잡음
+  const n = Math.hypot(...sv), hz = Math.hypot(sv[0], sv[1]) / n, azF = Math.atan2(sv[0], sv[1]) / RAD;
+  let az = azF;
+  if (st && hz < 0.35) { const azT = Math.atan2(-st[0], -st[1]) / RAD, w = 1 - hz / 0.35; az = azF + (((azT - azF + 540) % 360) - 180) * w; }
+  return [Math.asin(sv[2] / n) / RAD, az];
+}
+function applyOrientation0() {
+  const [alt, az] = rawView();
+  S.alt = Math.max(-89, Math.min(89, alt + S.offAlt));
+  S.az = ((az + S.offAz) % 360 + 360) % 360;
   if (!wantDraw) { wantDraw = true; requestAnimationFrame(() => { wantDraw = false; draw(); }); }
 }
-let gotAbs = false;
 function onOrient(e) {
   if (e.type === 'deviceorientationabsolute') gotAbs = true; else if (gotAbs) return; // 안드로이드: 북쪽 기준 값이 오면 그것만 사용
   if (e.alpha == null && e.webkitCompassHeading == null) return;
+  if (!warned && e.webkitCompassAccuracy != null && (e.webkitCompassAccuracy < 0 || e.webkitCompassAccuracy > 25)) { warned = true; hint('나침반이 부정확합니다. 폰을 8자 모양으로 크게 몇 번 돌려 주세요.'); }
   const alpha = e.webkitCompassHeading != null ? 360 - e.webkitCompassHeading : e.alpha; // 아이폰은 나침반 값 사용
   applyOrientation(alpha, e.beta, e.gamma);
 }
@@ -262,16 +300,17 @@ async function camOn() {
   } catch (err) {
     hint('카메라를 켜지 못했습니다. 주소가 https 인지, 카메라 허용을 했는지 확인해 주세요.'); return;
   }
-  S.cam = true; S.fov = 62; $('bCam').classList.add('on'); $('bCam').textContent = '카메라 끄기';
+  S.cam = true; setFov(camFov); $('bCam').classList.add('on'); $('bCam').textContent = '카메라 끄기';
   addEventListener('deviceorientationabsolute', onOrient); addEventListener('deviceorientation', onOrient);
-  hint('하늘을 비춰 보세요. 별이 어긋나면 화면을 끌어 맞추세요.');
-  setTimeout(() => { if (!sv) hint('방향센서 값이 오지 않습니다(PC에서는 정상). 폰에서 열어 주세요.'); else hint(''); }, 2500);
+  hint('처음에는 폰을 8자 모양으로 크게 몇 번 돌려 주세요(나침반이 정확해집니다). 별이 어긋나면 화면을 끌거나, 천체를 눌러 "십자에 맞추기"를 하세요.');
+  setTimeout(() => { if (!sv) hint('방향센서 값이 오지 않습니다(PC에서는 정상). 폰에서 열어 주세요.'); }, 2500);
+  setTimeout(() => { if (sv) hint(''); }, 9000);
   draw();
 }
 function camOff() {
   const v = $('v'); if (v.srcObject) v.srcObject.getTracks().forEach(t => t.stop()); v.srcObject = null; v.style.display = 'none';
   removeEventListener('deviceorientationabsolute', onOrient); removeEventListener('deviceorientation', onOrient);
-  S.cam = false; sv = null; gotAbs = false; $('bCam').classList.remove('on'); $('bCam').textContent = '카메라'; hint(''); draw();
+  S.cam = false; sv = null; st = null; gotAbs = false; warned = false; $('bFit').style.display = 'none'; $('bCam').classList.remove('on'); $('bCam').textContent = '카메라'; hint(''); draw();
 }
 
 // ---- 눌러서 정보 보기 ----
@@ -340,8 +379,21 @@ function renderPanel(date, L) {
   $('pBody').innerHTML = `<h2>${esc(d.title)}</h2><div class="sub">${esc(d.sub)}</div><table>${d.rows.map(r => `<tr><td>${esc(r[0])}</td><td>${esc(r[1])}</td></tr>`).join('')}</table>${d.text ? '<p>' + esc(d.text) + '</p>' : ''}`;
   $('panel').style.display = 'block';
 }
+function selHoriz(date, L) { // 눌러 둔 천체의 지금 [고도, 방위]
+  if (sel.t === 'body') { const eq = Astronomy.Equator(sel.id, date, new Astronomy.Observer(S.lat, S.lon, 0), false, true); return horiz(eq.ra * 15, eq.dec, L); }
+  if (sel.t === 'star') { const q = SKY.stars[sel.i]; return horiz(q[0], q[1], L); }
+  return horiz(sel.c.ra, sel.c.dec, L);
+}
+function fitToCross() { // 폰 십자를 실제 천체에 맞춘 상태에서 누름 → 화면의 그 천체가 십자 자리로 옴
+  if (!sv || !sel) return;
+  const date = now(), h = selHoriz(date, lst(date)), [alt, az] = rawView();
+  S.offAz = ((h[1] - az + 540) % 360) - 180; S.offAlt = h[0] - alt;
+  $('bReset').style.display = ''; saveCal(); closePanel(); applyOrientation0();
+  hint('맞췄습니다. 이 폰에 저장되어 다음에도 적용됩니다.'); setTimeout(() => hint(''), 4000);
+}
 function closePanel() { sel = null; $('panel').style.display = 'none'; draw(); }
 function drawSel() {
+  $('bFit').style.display = sv && sel ? '' : 'none';
   if (!sel) return;
   let p = null;
   if (sel.t === 'body') { const b = bodyHits.find(b => b.id === sel.id); if (b) p = [b.x, b.y]; }
@@ -391,11 +443,13 @@ function tapAt(x, y) {
 function resize() { dpr = devicePixelRatio || 1; W = innerWidth; H = innerHeight; cv.width = W * dpr; cv.height = H * dpr; draw(); }
 addEventListener('resize', resize);
 const ptrs = new Map(); let pinch = 0;
+let calDirty = false;
 let tap = null;   // 짧게 눌렀다 떼면 '누르기', 움직였으면 '끌기'
 cv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, [e.clientX, e.clientY]); pinch = 0; tap = ptrs.size === 1 ? { x: e.clientX, y: e.clientY, t: Date.now() } : null; });
 cv.addEventListener('pointerup', e => {
   if (tap && ptrs.size === 1 && Date.now() - tap.t < 600 && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) < 10) tapAt(e.clientX, e.clientY);
   tap = null; ptrs.delete(e.pointerId);
+  if (calDirty) { calDirty = false; saveCal(); }
 });
 cv.addEventListener('pointercancel', e => ptrs.delete(e.pointerId));
 cv.addEventListener('pointermove', e => {
@@ -404,27 +458,39 @@ cv.addEventListener('pointermove', e => {
   if (ptrs.size === 1 && sv) { // 센서가 켜져 있으면 끌기 = 어긋남 보정
     const degPerPx = S.fov / H;
     S.offAz -= (cur[0] - old[0]) * degPerPx; S.offAlt += (cur[1] - old[1]) * degPerPx;
-    $('bReset').style.display = ''; applyOrientation0();
+    $('bReset').style.display = ''; applyOrientation0(); calDirty = true;
   } else if (ptrs.size === 1) {
     const degPerPx = S.fov / H;
     S.az = ((S.az - (cur[0] - old[0]) * degPerPx) % 360 + 360) % 360;
     S.alt = Math.max(-90, Math.min(90, S.alt + (cur[1] - old[1]) * degPerPx));
   } else if (ptrs.size === 2) {
     const [a, b] = [...ptrs.values()]; const d = Math.hypot(a[0] - b[0], a[1] - b[1]);
-    if (pinch) S.fov = Math.max(20, Math.min(160, S.fov * pinch / d));
+    if (pinch) setFov(S.fov * pinch / d); if (S.cam) calDirty = true;
     pinch = d;
   }
   draw();
 });
-cv.addEventListener('wheel', e => { e.preventDefault(); S.fov = Math.max(20, Math.min(160, S.fov * (e.deltaY > 0 ? 1.1 : 0.9))); draw(); }, { passive: false });
+cv.addEventListener('wheel', e => { e.preventDefault(); setFov(S.fov * (e.deltaY > 0 ? 1.1 : 0.9)); if (S.cam) saveCal(); draw(); }, { passive: false });
 
 $('bLines').onclick = e => { S.lines = !S.lines; e.target.classList.toggle('on', S.lines); draw(); };
 $('bNames').onclick = e => { S.names = !S.names; e.target.classList.toggle('on', S.names); draw(); };
+$('fovSl').oninput = e => { setFov(+e.target.value); if (S.cam) saveCal(); draw(); };
 $('sl').oninput = e => { S.offMin = +e.target.value; draw(); };
 $('pClose').onclick = closePanel;
+$('bFit').onclick = fitToCross;
+// 전체화면: 이미 앱처럼 열렸으면 숨김 / 지원하면 전환 / 아이폰은 설치 방법 안내
+const isApp = matchMedia('(display-mode: fullscreen)').matches || matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+const de = document.documentElement, canFull = !!(de.requestFullscreen || de.webkitRequestFullscreen);
+if (isApp) $('bFull').style.display = 'none';
+else if (!canFull) $('bFull').textContent = '앱처럼 쓰기';
+$('bFull').onclick = () => {
+  if (!canFull) { hint('아이폰: 아래 공유 버튼 → "홈 화면에 추가"를 하고, 홈 화면의 별자리 아이콘으로 열면 주소창 없이 꽉 찬 화면이 됩니다.'); setTimeout(() => hint(''), 9000); return; }
+  if (document.fullscreenElement || document.webkitFullscreenElement) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+  else (de.requestFullscreen || de.webkitRequestFullscreen).call(de).catch(() => hint('전체화면을 켜지 못했습니다. 브라우저 메뉴의 "홈 화면에 추가"를 이용해 주세요.'));
+};
+['fullscreenchange', 'webkitfullscreenchange'].forEach(ev => document.addEventListener(ev, () => { const on = document.fullscreenElement || document.webkitFullscreenElement; $('bFull').textContent = on ? '전체화면 끄기' : '전체화면'; $('bFull').classList.toggle('on', !!on); }));
 $('bCam').onclick = () => S.cam ? camOff() : camOn();
-$('bReset').onclick = e => { S.offAz = S.offAlt = 0; e.target.style.display = 'none'; if (sv) applyOrientation0(); };
-function applyOrientation0() { const n = Math.hypot(...sv); S.alt = Math.max(-89, Math.min(89, Math.asin(sv[2] / n) / RAD + S.offAlt)); S.az = (((Math.atan2(sv[0], sv[1]) / RAD) + S.offAz) % 360 + 360) % 360; draw(); }
+$('bReset').onclick = e => { S.offAz = S.offAlt = 0; e.target.style.display = 'none'; saveCal(); if (sv) applyOrientation0(); };
 $('bNow').onclick = () => { S.offMin = 0; $('sl').value = 0; draw(); };
 $('bGps').onclick = () => {
   if (!navigator.geolocation) { alert('이 브라우저는 위치 기능이 없습니다.'); return; }
@@ -433,7 +499,9 @@ $('bGps').onclick = () => {
 };
 setInterval(() => { if (!S.offMin) draw(); }, 30000);
 const sim = /sim=([-\d.]+),([-\d.]+),([-\d.]+)/.exec(location.hash); // 확인용: 가짜 센서값
-if (sim) { S.cam = false; S.fov = 62; applyOrientation(+sim[1], +sim[2], +sim[3]); }
+if (sim) { S.cam = false; setFov(62); applyOrientation(+sim[1], +sim[2], +sim[3]); }
+if (savedCal) { S.offAz = savedCal.offAz || 0; S.offAlt = savedCal.offAlt || 0; if (savedCal.camFov >= 20 && savedCal.camFov <= 160) camFov = savedCal.camFov; if (S.offAz || S.offAlt) $('bReset').style.display = ''; }
+setFov(S.fov);
 resize();
 const tp = /tap=([-\d.]+),([-\d.]+)/.exec(location.hash); // 확인용: 그 자리를 누른 것처럼 동작
 if (tp) try { tapAt(+tp[1], +tp[2]); } catch (e) { hint('오류: ' + e.message); }
