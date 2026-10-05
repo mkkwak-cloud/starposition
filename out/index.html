@@ -36,7 +36,19 @@ button.on{background:var(--accent);color:#04101f;border-color:var(--accent)}
 .info input[type=range]{flex:1;min-width:0;width:100%}
 #when{white-space:nowrap}
 .dim{color:var(--dim);font-size:13px}
+.inst{display:none;align-items:center;gap:8px;background:rgba(40,70,130,.9);border:1px solid var(--line);border-radius:12px;padding:8px 10px;margin-bottom:6px;font-size:13px;line-height:1.4}
+.inst span{flex:1}.inst button{padding:4px 10px}
 #when{font-weight:600}
+/* 가로로 돌려 화면 높이가 낮을 때: 설명을 숨기고 슬라이더를 나란히 놓아 하늘을 덜 가림 */
+@media (max-height:500px){
+  .help,.bar h1{display:none}
+  .bar{padding-bottom:4px}
+  .info{display:flex;flex-wrap:wrap;column-gap:14px;padding-top:8px;padding-bottom:max(6px,env(safe-area-inset-bottom))}
+  .info>*{flex:1 1 100%}
+  .info .row{flex:1 1 260px;margin-top:0}
+  #where{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px}
+  .inst{margin-bottom:2px}
+}
 </style>
 </head>
 <body>
@@ -51,15 +63,17 @@ button.on{background:var(--accent);color:#04101f;border-color:var(--accent)}
   <button id="bNames" class="on">이름</button>
   <button id="bNow">지금</button>
   <button id="bCam">카메라</button>
+  <button id="bBg" style="display:none">검정 바탕</button>
   <button id="bFull">전체화면</button>
   <button id="bFit" style="display:none">십자에 맞추기</button>
   <button id="bReset" style="display:none">보정 초기화</button>
 </div>
 <div class="info">
+  <div id="inst" class="inst"><span id="instT"></span><button id="instGo" style="display:none"></button><button id="instX">✕</button></div>
   <div id="where" class="dim"></div>
   <div class="row"><span id="when"></span><input id="sl" type="range" min="-720" max="720" step="5" value="0"></div>
   <div class="row"><span class="dim" style="white-space:nowrap">화면 넓이 <b id="fovT"></b></span><input id="fovSl" type="range" min="20" max="160" step="1"></div>
-  <div class="dim">화면을 끌면 시선이 움직이고, 두 손가락(또는 휠)으로 확대·축소. 슬라이더는 지금부터 ±12시간. 카메라를 켠 뒤 화면을 끌면 방향이 어긋난 만큼 보정됩니다.</div>
+  <div class="dim help">화면을 끌면 시선이 움직이고, 두 손가락(또는 휠)으로 확대·축소. 슬라이더는 지금부터 ±12시간. 카메라를 켠 뒤 화면을 끌면 방향이 어긋난 만큼 보정됩니다.</div>
 </div>
 <script src="skydata.js"></script>
 <script src="astronomy.browser.min.js"></script>
@@ -69,6 +83,8 @@ const $ = id => document.getElementById(id);
 const RAD = Math.PI / 180;
 const cv = document.getElementById('c'), g = cv.getContext('2d');
 let W, H, dpr;
+let bgBlack = false; // 카메라 모드 배경: false=카메라 영상, true=검정 (폰에 저장)
+try { bgBlack = localStorage.getItem('starbg') === 'black'; } catch (e) { }
 let camFov = 62, savedCal = null; // camFov: 카메라(센서) 모드의 시야각(어림값). 보정값과 함께 폰에 저장
 try { savedCal = JSON.parse(localStorage.getItem('starcal') || 'null'); } catch (e) { }
 function saveCal() { try { localStorage.setItem('starcal', JSON.stringify({ offAz: S.offAz, offAlt: S.offAlt, camFov })); } catch (e) { } }
@@ -125,7 +141,7 @@ function draw() {
   const date = now(), L = lst(date);
   setCam();
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
-  g.fillStyle = S.cam ? '#000' : '#050a18'; g.fillRect(0, 0, W, H);
+  if (S.cam && videoOn()) g.clearRect(0, 0, W, H); else { g.fillStyle = S.cam ? '#000' : '#050a18'; g.fillRect(0, 0, W, H); }
   taken.length = 0; bodyHits.length = 0;
 
   // 지평선(고도 0) 선과 땅
@@ -290,25 +306,29 @@ function onOrient(e) {
   applyOrientation(alpha, e.beta, e.gamma);
 }
 function hint(t) { $('hint').textContent = t || ''; }
+const videoOn = () => !!$('v').srcObject && !bgBlack;
+function showBg() { $('v').style.display = videoOn() ? 'block' : 'none'; $('bBg').textContent = bgBlack ? '영상 바탕' : '검정 바탕'; $('bBg').style.display = S.cam && $('v').srcObject ? '' : 'none'; }
 async function camOn() {
   try {
     if (typeof DeviceOrientationEvent !== 'undefined' && DeviceOrientationEvent.requestPermission) {
       const r = await DeviceOrientationEvent.requestPermission();
       if (r !== 'granted') { hint('방향센서 허용이 필요합니다. 설정에서 허용해 주세요.'); return; }
     }
-    // 카메라 영상은 띄우지 않고 검은 배경에 방향센서만 사용
   } catch (err) {
-    hint('카메라를 켜지 못했습니다. 주소가 https 인지, 카메라 허용을 했는지 확인해 주세요.'); return;
+    hint('방향센서를 켜지 못했습니다. 주소가 https 인지 확인해 주세요.'); return;
   }
-  S.cam = true; setFov(camFov); $('bCam').classList.add('on'); $('bCam').textContent = '카메라 끄기';
+  let noVideo = false;
+  try { $('v').srcObject = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false }); }
+  catch (err) { noVideo = true; } // 영상이 안 되어도 검정 바탕 + 방향센서로 계속
+  S.cam = true; showBg(); setFov(camFov); $('bCam').classList.add('on'); $('bCam').textContent = '카메라 끄기';
   addEventListener('deviceorientationabsolute', onOrient); addEventListener('deviceorientation', onOrient);
-  hint('처음에는 폰을 8자 모양으로 크게 몇 번 돌려 주세요(나침반이 정확해집니다). 별이 어긋나면 화면을 끌거나, 천체를 눌러 "십자에 맞추기"를 하세요.');
+  hint((noVideo ? '카메라 영상은 켜지 못해 검정 바탕으로 보여 드립니다(카메라 허용을 확인해 주세요). ' : '') + '처음에는 폰을 8자 모양으로 크게 몇 번 돌려 주세요(나침반이 정확해집니다). 별이 어긋나면 화면을 끌거나, 천체를 눌러 "십자에 맞추기"를 하세요.');
   setTimeout(() => { if (!sv) hint('방향센서 값이 오지 않습니다(PC에서는 정상). 폰에서 열어 주세요.'); }, 2500);
   setTimeout(() => { if (sv) hint(''); }, 9000);
   draw();
 }
 function camOff() {
-  const v = $('v'); if (v.srcObject) v.srcObject.getTracks().forEach(t => t.stop()); v.srcObject = null; v.style.display = 'none';
+  const v = $('v'); if (v.srcObject) v.srcObject.getTracks().forEach(t => t.stop()); v.srcObject = null; v.style.display = 'none'; $('bBg').style.display = 'none';
   removeEventListener('deviceorientationabsolute', onOrient); removeEventListener('deviceorientation', onOrient);
   S.cam = false; sv = null; st = null; gotAbs = false; warned = false; $('bFit').style.display = 'none'; $('bCam').classList.remove('on'); $('bCam').textContent = '카메라'; hint(''); draw();
 }
@@ -478,6 +498,7 @@ $('fovSl').oninput = e => { setFov(+e.target.value); if (S.cam) saveCal(); draw(
 $('sl').oninput = e => { S.offMin = +e.target.value; draw(); };
 $('pClose').onclick = closePanel;
 $('bFit').onclick = fitToCross;
+$('bBg').onclick = () => { bgBlack = !bgBlack; try { localStorage.setItem('starbg', bgBlack ? 'black' : 'video'); } catch (e) { } showBg(); draw(); };
 // 전체화면: 이미 앱처럼 열렸으면 숨김 / 지원하면 전환 / 아이폰은 설치 방법 안내
 const isApp = matchMedia('(display-mode: fullscreen)').matches || matchMedia('(display-mode: standalone)').matches || navigator.standalone;
 const de = document.documentElement, canFull = !!(de.requestFullscreen || de.webkitRequestFullscreen);
@@ -503,6 +524,27 @@ if (sim) { S.cam = false; setFov(62); applyOrientation(+sim[1], +sim[2], +sim[3]
 if (savedCal) { S.offAz = savedCal.offAz || 0; S.offAlt = savedCal.offAlt || 0; if (savedCal.camFov >= 20 && savedCal.camFov <= 160) camFov = savedCal.camFov; if (S.offAz || S.offAlt) $('bReset').style.display = ''; }
 setFov(S.fov);
 resize();
+// 설치 안내 띠: 앱으로 안 열었을 때만. 파일로 열었으면 인터넷 주소로 열도록 안내
+const SITE = 'https://mkkwak-cloud.github.io/starposition/';
+let instPrompt = null, instHide = false;
+try { instHide = localStorage.getItem('starinst') === 'no'; } catch (e) { }
+function showInst(t, btn, fn) { $('instT').textContent = t; const b = $('instGo'); b.style.display = btn ? '' : 'none'; if (btn) { b.textContent = btn; b.onclick = fn; } $('inst').style.display = 'flex'; }
+addEventListener('beforeinstallprompt', e => { e.preventDefault(); instPrompt = e; if (!isApp && !instHide) showInst('이 앱을 폰에 설치하면 주소창 없이 꽉 찬 화면으로 쓸 수 있습니다.', '설치', async () => { instPrompt.prompt(); await instPrompt.userChoice; $('inst').style.display = 'none'; }); });
+$('instX').onclick = () => { $('inst').style.display = 'none'; try { if (/^https?:$/.test(location.protocol)) localStorage.setItem('starinst', 'no'); } catch (e) { } };
+if (navigator.maxTouchPoints > 0 && !isApp) {
+  if (!/^https:$/.test(location.protocol) && location.hostname !== 'localhost') showInst('이 방식(파일)으로 열면 카메라·방향센서가 막힙니다. 인터넷 주소로 열어 주세요.', '주소로 열기', () => { location.href = SITE; });
+  else if (!instHide) {
+    if (/iphone|ipad|ipod/i.test(navigator.userAgent)) showInst('앱처럼 쓰려면: 아래 공유 버튼 → "홈 화면에 추가".');
+    else if (!instPrompt) showInst('앱처럼 쓰려면: 브라우저 메뉴(⋮) → "홈 화면에 추가" 또는 "앱 설치".');
+  }
+}
+// 폰(터치 기기)에서 그냥 열면 자동으로 카메라+센서를 켠다. 아이폰은 허용창 때문에 첫 터치가 필요.
+if (navigator.maxTouchPoints > 0 && !location.hash) {
+  if (typeof DeviceOrientationEvent !== 'undefined' && DeviceOrientationEvent.requestPermission) {
+    hint('화면을 한 번 누르면 카메라와 방향센서가 켜집니다.');
+    document.addEventListener('click', e => { if (!S.cam && !e.target.closest('#bCam')) camOn(); }, { once: true });
+  } else camOn();
+}
 const tp = /tap=([-\d.]+),([-\d.]+)/.exec(location.hash); // 확인용: 그 자리를 누른 것처럼 동작
 if (tp) try { tapAt(+tp[1], +tp[2]); } catch (e) { hint('오류: ' + e.message); }
 </script>
