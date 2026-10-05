@@ -48,6 +48,8 @@ button.on{background:var(--accent);color:#04101f;border-color:var(--accent)}
   .info .row{flex:1 1 260px;margin-top:0}
   #where{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px}
 }
+#ivb{position:fixed;right:10px;top:104px;z-index:4;min-width:150px;background:rgba(10,18,40,.8);border:1px solid var(--line);border-radius:12px;padding:6px 10px;font-size:13px;line-height:1.5;pointer-events:none}
+#ivb div{display:flex;justify-content:space-between;gap:14px}#ivb span{color:var(--dim)}#ivb b{font-weight:600}
 </style>
 </head>
 <body>
@@ -55,15 +57,16 @@ button.on{background:var(--accent);color:#04101f;border-color:var(--accent)}
 <canvas id="c"></canvas>
 <div id="hint" class="hint"></div>
 <div id="ov"><img src="icon-192.png" width="96" height="96" alt=""><b>별자리 하늘을 설치할까요?</b><div class="dim" id="ovT">화면 아무 데나 누르면 설치창이 뜹니다. 설치창의 "설치"를 누르면 홈 화면에 바로가기가 생깁니다.</div><button class="big" id="ovGo">설치하기</button><button id="ovNo">나중에</button></div>
+<div id="ivb"></div>
 <div id="panel" class="panel"><button class="x" id="pClose">✕</button><div id="pBody"></div></div>
-<div class="bar">
+<div class="bar" id="bar">
   <h1>★ 별자리 하늘</h1>
   <button id="bGps">내 위치</button>
   <button id="bLines" class="on">별자리 선</button>
   <button id="bNames" class="on">이름</button>
   <button id="bNow">지금</button>
   <button id="bCam">카메라</button>
-  <button id="bBg" style="display:none">검정 바탕</button>
+  <button id="bBg" style="display:none">어두운 바탕</button>
   <button id="bFull">전체화면</button>
   <button id="bFit" style="display:none">십자에 맞추기</button>
   <button id="bReset" style="display:none">보정 초기화</button>
@@ -137,29 +140,50 @@ function bvColor(bv) {
 
 // ---- 그리기 ----
 function now() { return new Date(Date.now() + S.offMin * 60000); }
+const gc = document.createElement('canvas'), gx = gc.getContext('2d');
+function drawGround() { // 화면 각 점이 가리키는 고도를 거꾸로 계산해, 0 미만이면 남색으로 칠함(작은 그림으로 만들어 늘려 그림)
+  const st = 4, w = Math.ceil(W / st), h = Math.ceil(H / st);
+  if (gc.width !== w || gc.height !== h) { gc.width = w; gc.height = h; }
+  const im = gx.createImageData(w, h), d = im.data, k2 = 2 * scale;
+  for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) {
+    const px = xx * st + st / 2 - W / 2, py = H / 2 - (yy * st + st / 2), rr = Math.hypot(px, py), th = 2 * Math.atan(rr / k2), c = Math.cos(th), sn = rr ? Math.sin(th) / rr : 0;
+    const vz = c * F[2] + sn * (px * R[2] + py * U[2]);
+    if (vz >= 0) continue;
+    const t = Math.min(1, -Math.asin(Math.max(-1, vz)) / (Math.PI / 2)), o = (yy * w + xx) * 4;
+    d[o] = 12 - 9 * t; d[o + 1] = 22 - 19 * t; d[o + 2] = 88 - 30 * t; d[o + 3] = 255;
+  }
+  gx.putImageData(im, 0, 0); g.imageSmoothingEnabled = true; g.drawImage(gc, 0, 0, w * st, h * st);
+}
 function draw() {
   const date = now(), L = lst(date);
   setCam();
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
-  if (S.cam && videoOn()) g.clearRect(0, 0, W, H); else { g.fillStyle = S.cam ? '#000' : '#050a18'; g.fillRect(0, 0, W, H); }
+  if (S.cam && videoOn()) g.clearRect(0, 0, W, H); else { g.fillStyle = '#0b1428'; g.fillRect(0, 0, W, H); }
   taken.length = 0; bodyHits.length = 0;
 
+  if (!(S.cam && videoOn())) drawGround(); // 지평선 아래(땅 쪽 하늘)는 푸른 남색
+  // 옅은 격자선(고도 10° 간격 원, 방위 30° 간격 선) + 보는 방향의 고도 숫자
+  g.strokeStyle = 'rgba(150,175,230,.14)'; g.lineWidth = 1; g.beginPath();
+  for (let alt = 10; alt <= 80; alt += 10) {
+    let f2 = true;
+    for (let a = 0; a <= 360; a += 3) { const p = proj(vec(alt, a)); if (!p) { f2 = true; continue; } f2 ? g.moveTo(p[0], p[1]) : g.lineTo(p[0], p[1]); f2 = false; }
+  }
+  for (let a = 0; a < 360; a += 30) {
+    let f2 = true;
+    for (let alt = 0; alt <= 90; alt += 5) { const p = proj(vec(alt, a)); if (!p) { f2 = true; continue; } f2 ? g.moveTo(p[0], p[1]) : g.lineTo(p[0], p[1]); f2 = false; }
+  }
+  g.stroke();
+  g.font = '11px Pretendard,"Malgun Gothic",sans-serif'; g.fillStyle = 'rgba(175,195,240,.6)'; g.textAlign = 'left';
+  for (let alt = 10; alt <= 80; alt += 10) { const p = proj(vec(alt, S.az)); if (p && p[0] > 8 && p[0] < W - 30 && p[1] > 110 && p[1] < H - 110) g.fillText(alt + '°', p[0] + 4, p[1] - 3); }
   // 지평선(고도 0) 선과 땅
-  g.strokeStyle = '#3d6ab0'; g.lineWidth = 1.5; g.beginPath();
+  g.strokeStyle = '#c9a24a'; g.lineWidth = 2.2; g.beginPath();
   let first = true;
   for (let a = 0; a <= 360; a += 2) { const p = proj(vec(0, a)); if (!p) { first = true; continue; } first ? g.moveTo(p[0], p[1]) : g.lineTo(p[0], p[1]); first = false; }
   g.stroke();
-  // 땅 쪽(고도 0 아래)을 어둡게 (카메라를 켜면 실제 풍경이 보이므로 생략)
-  for (let alt = S.cam ? -100 : -2; alt >= -60; alt -= 2) {
-    g.beginPath(); first = true;
-    for (let a = 0; a <= 360; a += 3) { const p = proj(vec(alt, a)); if (!p) { first = true; continue; } first ? g.moveTo(p[0], p[1]) : g.lineTo(p[0], p[1]); first = false; }
-    g.strokeStyle = 'rgba(2,5,12,.12)'; g.lineWidth = 12; g.stroke();
-  }
-
   // 별자리 선
   const cpos = [];
   if (S.lines) {
-    g.strokeStyle = 'rgba(110,170,255,.45)'; g.lineWidth = 1.2;
+    g.strokeStyle = 'rgba(170,130,235,.7)'; g.lineWidth = 1.3;
     for (const c of SKY.cons) {
       g.beginPath();
       for (const seg of c.lines) {
@@ -179,14 +203,14 @@ function draw() {
     g.stroke();
   }
   // 별
-  const pos = starPos = new Array(SKY.stars.length);
+  const pos = starPos = new Array(SKY.stars.length), maxMag = S.fov >= 50 ? 5.0 : 6.5;
   for (let i = 0; i < SKY.stars.length; i++) {
     const [ra, dec, mag, bv] = SKY.stars[i];
     const q = P(ra, dec, L); pos[i] = q;
-    if (!q.p) continue;
+    if (!q.p || mag > maxMag) continue; // 의미 없는 어두운 별은 그리지 않음(확대하면 더 보임)
     if (q.p[0] < -20 || q.p[0] > W + 20 || q.p[1] < -20 || q.p[1] > H + 20) continue;
     const r = Math.max(0.6, (6.2 - mag) * 0.62 * Math.min(1.8, 0.6 + 70 / S.fov));
-    g.fillStyle = bvColor(bv); g.globalAlpha = q.h[0] < 0 ? 0.35 : 1;
+    g.fillStyle = bvColor(bv); g.globalAlpha = (q.h[0] < 0 ? 0.35 : 1) * (mag > 4.0 ? 0.7 : 1);
     g.beginPath(); g.arc(q.p[0], q.p[1], Math.min(r, 6), 0, 6.283); g.fill();
   }
   g.globalAlpha = 1;
@@ -218,6 +242,16 @@ function draw() {
     const p = proj(vec(3, a)); if (p && p[1] > 70 && p[1] < H - 70) { g.fillStyle = n === '북' ? '#ff8f8f' : '#9bd0ff'; g.fillText(n, p[0], p[1]); }
   });
 
+  { // 화면 가운데가 가리키는 곳의 적경·적위(별의 하늘 주소)와 고도·방위·시야
+    const al = S.alt * RAD, az = S.az * RAD, la = S.lat * RAD;
+    const dec = Math.asin(Math.sin(al) * Math.sin(la) + Math.cos(al) * Math.cos(la) * Math.cos(az)) / RAD;
+    const ha = Math.atan2(-Math.sin(az) * Math.cos(al), Math.sin(al) * Math.cos(la) - Math.cos(al) * Math.sin(la) * Math.cos(az)) / RAD;
+    const ra = (((L - ha) % 360) + 360) % 360, rh = ra / 15, h = Math.floor(rh), m = Math.floor((rh - h) * 60);
+    const dn = DIR8[Math.round(S.az / 45) % 8], sg = x => (x >= 0 ? '+' : '−') + Math.abs(x).toFixed(1) + '°';
+    const row = (k, v) => `<div><span>${k}</span><b>${v}</b></div>`;
+    $('ivb').style.top = ($('bar').offsetHeight + 4) + 'px';
+    $('ivb').innerHTML = row('적경', h + '시 ' + String(m).padStart(2, '0') + '분') + row('적위', sg(dec)) + row('고도', sg(S.alt)) + row('방위', Math.round(S.az) + '° ' + dn) + row('시야', Math.round(S.fov) + '°');
+  }
   const dir = ['북', '북동', '동', '남동', '남', '남서', '서', '북서'][Math.round(S.az / 45) % 8];
   document.getElementById('when').textContent = date.toLocaleString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
   document.getElementById('where').textContent = `${S.place} (위도 ${S.lat.toFixed(2)}, 경도 ${S.lon.toFixed(2)}) · 보는 방향: ${dir}쪽 고도 ${Math.round(S.alt)}°`;
@@ -237,6 +271,26 @@ function tryText(txt, x, y, align, force) {
 // ---- 해·달·행성 (astronomy-engine 으로 계산) ----
 const BODIES = [['Sun','태양','#ffd34d'],['Moon','달','#f2f2f2'],['Mercury','수성','#c9b79c'],['Venus','금성','#fff2c0'],
   ['Mars','화성','#ff7a54'],['Jupiter','목성','#ffd9a0'],['Saturn','토성','#e8d28a'],['Uranus','천왕성','#9fe8ee'],['Neptune','해왕성','#7da2ff']];
+// 행성: 우리가 아는 색·모양(목성 줄무늬, 토성 고리)으로 그림. [밝은 쪽 색, 어두운 쪽 색]
+const PLANET_LOOK = { Mercury: ['#e2dccf', '#8d8576'], Venus: ['#fff6d6', '#d9b873'], Mars: ['#f59a6b', '#a63d22'], Jupiter: ['#f7e3c0', '#b5855a'], Saturn: ['#f8e6b8', '#c8a468'], Uranus: ['#dcf8f8', '#74c6cc'], Neptune: ['#79adff', '#2748c0'] };
+function drawPlanet(id, x, y) { // 그린 뒤 글자를 둘 오른쪽 간격을 돌려줌
+  const look = PLANET_LOOK[id]; if (!look) { g.fillStyle = '#ddd'; g.beginPath(); g.arc(x, y, 4.5, 0, 6.283); g.fill(); return 15; }
+  const r = Math.max(6, Math.min(13, 8 * Math.sqrt(70 / S.fov))), ring = id === 'Saturn';
+  g.save(); g.translate(x, y);
+  if (ring) g.rotate(-0.4);
+  const rim = (a0, a1) => { g.beginPath(); g.ellipse(0, 0, r * 2.05, r * 0.62, 0, a0, a1); g.stroke(); };
+  if (ring) { g.strokeStyle = 'rgba(214,190,140,.85)'; g.lineWidth = r * 0.36; rim(Math.PI, 2 * Math.PI); g.strokeStyle = 'rgba(160,138,100,.8)'; g.lineWidth = r * 0.08; rim(Math.PI, 2 * Math.PI); } // 고리 뒤쪽 절반
+  const gr = g.createRadialGradient(-r * 0.35, -r * 0.35, r * 0.1, 0, 0, r); gr.addColorStop(0, look[0]); gr.addColorStop(1, look[1]);
+  g.fillStyle = gr; g.beginPath(); g.arc(0, 0, r, 0, 6.283); g.fill();
+  if (id === 'Jupiter' || ring) { // 가로 줄무늬
+    g.save(); g.beginPath(); g.arc(0, 0, r, 0, 6.283); g.clip(); g.fillStyle = id === 'Jupiter' ? 'rgba(150,95,55,.42)' : 'rgba(150,115,70,.25)';
+    for (const [dy, h] of id === 'Jupiter' ? [[-0.55, 0.18], [-0.15, 0.24], [0.35, 0.2]] : [[-0.4, 0.14], [0.1, 0.16]]) g.fillRect(-r, dy * r, 2 * r, h * r);
+    g.restore();
+  }
+  if (ring) { g.strokeStyle = 'rgba(214,190,140,.95)'; g.lineWidth = r * 0.36; rim(0, Math.PI); g.strokeStyle = 'rgba(160,138,100,.85)'; g.lineWidth = r * 0.08; rim(0, Math.PI); } // 고리 앞쪽 절반
+  g.restore();
+  return ring ? r * 2.2 + 6 : r + 8;
+}
 function drawBodies(date, L) {
   const obs = new Astronomy.Observer(S.lat, S.lon, 0);
   g.textAlign = 'left';
@@ -248,7 +302,7 @@ function drawBodies(date, L) {
     if (x < -30 || x > W + 30 || y < -30 || y > H + 30) continue;
     bodyHits.push({ id, ko, x, y });
     g.globalAlpha = q.h[0] < 0 ? 0.4 : 1;
-    let note = '';
+    let note = '', off = 15;
     if (id === 'Sun') {
       const gr = g.createRadialGradient(x, y, 0, x, y, 40); gr.addColorStop(0, 'rgba(255,210,80,.9)'); gr.addColorStop(1, 'rgba(255,210,80,0)');
       g.fillStyle = gr; g.beginPath(); g.arc(x, y, 40, 0, 6.283); g.fill();
@@ -262,10 +316,10 @@ function drawBodies(date, L) {
       g.ellipse(0, 0, Math.abs(c) * r, r, 0, Math.PI / 2, -Math.PI / 2, c > 0); g.fill();
       g.restore();
     } else {
-      g.fillStyle = col; g.beginPath(); g.arc(x, y, 4.5, 0, 6.283); g.fill();
+      off = drawPlanet(id, x, y);
     }
     g.font = '600 13px Pretendard,"Malgun Gothic",sans-serif'; g.fillStyle = col;
-    tryText(ko + note, x + 15, y + 4, 'left', true);
+    tryText(ko + note, x + off, y + 4, 'left', true);
   }
   g.globalAlpha = 1;
 }
@@ -307,10 +361,11 @@ function onOrient(e) {
 }
 function hint(t) { $('hint').textContent = t || ''; }
 const videoOn = () => !!$('v').srcObject && !bgBlack;
-function showBg() { $('v').style.display = videoOn() ? 'block' : 'none'; $('bBg').textContent = bgBlack ? '영상 바탕' : '검정 바탕'; $('bBg').style.display = S.cam && $('v').srcObject ? '' : 'none'; }
+function showBg() { $('v').style.display = videoOn() ? 'block' : 'none'; $('bBg').textContent = bgBlack ? '영상 바탕' : '어두운 바탕'; $('bBg').style.display = S.cam && $('v').srcObject ? '' : 'none'; }
 async function camOn(auto) { // auto: 열 때 자동 시도(센서 허용이 터치를 요구하면 첫 터치를 기다림)
+  const needPerm = typeof DeviceOrientationEvent !== 'undefined' && !!DeviceOrientationEvent.requestPermission;
   try {
-    if (typeof DeviceOrientationEvent !== 'undefined' && DeviceOrientationEvent.requestPermission) {
+    if (needPerm && !(auto && /Android/i.test(navigator.userAgent))) {
       const r = await DeviceOrientationEvent.requestPermission();
       if (r !== 'granted') { if (auto) return waitTap(); hint('방향센서 허용이 필요합니다. 설정에서 허용해 주세요.'); return; }
     }
@@ -321,12 +376,17 @@ async function camOn(auto) { // auto: 열 때 자동 시도(센서 허용이 터
   let noVideo = false;
   try { $('v').srcObject = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false }); }
   catch (err) { noVideo = true; } // 영상이 안 되어도 검정 바탕 + 방향센서로 계속
-  S.cam = true; showBg(); getGps(true); // 카메라가 켜지면 위치도 자동으로 잡음 setFov(camFov); $('bCam').classList.add('on'); $('bCam').textContent = '카메라 끄기';
+  S.cam = true; showBg(); setFov(camFov); $('bCam').classList.add('on'); $('bCam').textContent = '카메라 끄기';
+  getGps(true); // 카메라가 켜지면 위치도 자동으로 잡음
   addEventListener('deviceorientationabsolute', onOrient); addEventListener('deviceorientation', onOrient);
   hint((noVideo ? '카메라 영상은 켜지 못해 검정 바탕으로 보여 드립니다(카메라 허용을 확인해 주세요). ' : '') + '처음에는 폰을 8자 모양으로 크게 몇 번 돌려 주세요(나침반이 정확해집니다). 별이 어긋나면 화면을 끌거나, 천체를 눌러 "십자에 맞추기"를 하세요.');
-  setTimeout(() => { if (!sv) hint('방향센서 값이 오지 않습니다(PC에서는 정상). 폰에서 열어 주세요.'); }, 2500);
+  setTimeout(() => { if (!sv && needPerm) tapPerm(); else if (!sv) hint('방향센서 값이 오지 않습니다(PC에서는 정상). 폰에서 열어 주세요.'); }, 2500);
   setTimeout(() => { if (sv) hint(''); }, 9000);
   draw();
+}
+function tapPerm() { // 센서 값이 안 오면: 화면을 한 번 누를 때 허용 요청(이미 켜 둔 센서 듣기에 값이 들어옴)
+  hint('화면을 한 번 누르면 방향센서가 켜집니다.');
+  document.addEventListener('click', async () => { try { await DeviceOrientationEvent.requestPermission(); } catch (e) { } hint(''); }, { once: true, capture: true });
 }
 function waitTap() { // 터치가 있어야 허용되는 기기(아이폰 등): 화면 어디든 처음 누를 때 켬
   hint('화면을 한 번 누르면 카메라와 방향센서가 켜집니다.');
