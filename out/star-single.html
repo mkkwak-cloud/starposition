@@ -630,13 +630,14 @@ function onOrient(e) {
 function hint(t) { $('hint').textContent = t || ''; }
 const videoOn = () => !!$('v').srcObject && !bgBlack;
 function showBg() { $('v').style.display = videoOn() ? 'block' : 'none'; $('bBg').textContent = bgBlack ? '영상 바탕' : '검정 바탕'; $('bBg').style.display = S.cam && $('v').srcObject ? '' : 'none'; }
-async function camOn() {
+async function camOn(auto) { // auto: 열 때 자동 시도(센서 허용이 터치를 요구하면 첫 터치를 기다림)
   try {
     if (typeof DeviceOrientationEvent !== 'undefined' && DeviceOrientationEvent.requestPermission) {
       const r = await DeviceOrientationEvent.requestPermission();
-      if (r !== 'granted') { hint('방향센서 허용이 필요합니다. 설정에서 허용해 주세요.'); return; }
+      if (r !== 'granted') { if (auto) return waitTap(); hint('방향센서 허용이 필요합니다. 설정에서 허용해 주세요.'); return; }
     }
   } catch (err) {
+    if (auto) return waitTap();
     hint('방향센서를 켜지 못했습니다. 주소가 https 인지 확인해 주세요.'); return;
   }
   let noVideo = false;
@@ -648,6 +649,11 @@ async function camOn() {
   setTimeout(() => { if (!sv) hint('방향센서 값이 오지 않습니다(PC에서는 정상). 폰에서 열어 주세요.'); }, 2500);
   setTimeout(() => { if (sv) hint(''); }, 9000);
   draw();
+}
+function waitTap() { // 터치가 있어야 허용되는 기기(아이폰 등): 화면 어디든 처음 누를 때 켬
+  hint('화면을 한 번 누르면 카메라와 방향센서가 켜집니다.');
+  const h = e => { if (S.cam) { document.removeEventListener('click', h, true); return; } if (e.target.closest('#bCam')) return; document.removeEventListener('click', h, true); camOn(); };
+  document.addEventListener('click', h, true);
 }
 function camOff() {
   const v = $('v'); if (v.srcObject) v.srcObject.getTracks().forEach(t => t.stop()); v.srcObject = null; v.style.display = 'none'; $('bBg').style.display = 'none';
@@ -887,13 +893,8 @@ if (navigator.maxTouchPoints > 0 && !isApp) {
     setTimeout(() => hint(''), 9000);
   };
 }
-// 폰(터치 기기)에서 그냥 열면 자동으로 카메라+센서를 켠다. 아이폰은 허용창 때문에 첫 터치가 필요.
-if (navigator.maxTouchPoints > 0 && !location.hash) {
-  if (typeof DeviceOrientationEvent !== 'undefined' && DeviceOrientationEvent.requestPermission) {
-    hint('화면을 한 번 누르면 카메라와 방향센서가 켜집니다.');
-    document.addEventListener('click', e => { if (!S.cam && !e.target.closest('#bCam')) camOn(); }, { once: true });
-  } else camOn();
-}
+// 폰(터치 기기)에서 그냥 열면 자동으로 카메라+센서를 켠다. 터치가 있어야 허용되는 기기는 첫 터치에 켠다.
+if (navigator.maxTouchPoints > 0 && !location.hash) camOn(true);
 const tp = /tap=([-\d.]+),([-\d.]+)/.exec(location.hash); // 확인용: 그 자리를 누른 것처럼 동작
 if (tp) try { tapAt(+tp[1], +tp[2]); } catch (e) { hint('오류: ' + e.message); }
 </script>
