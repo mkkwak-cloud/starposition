@@ -61,10 +61,10 @@ button.on{background:var(--accent);color:#04101f;border-color:var(--accent)}
   <button id="bNow">지금</button>
   <button id="bCam">카메라</button>
   <button id="bBg" style="display:none">검정 바탕</button>
-  <button id="bInst" style="display:none">앱 설치</button>
   <button id="bFull">전체화면</button>
   <button id="bFit" style="display:none">십자에 맞추기</button>
   <button id="bReset" style="display:none">보정 초기화</button>
+  <button id="bInst" style="display:none">앱 설치</button>
 </div>
 <div class="info">
   <div id="where" class="dim"></div>
@@ -639,7 +639,7 @@ async function camOn() {
   let noVideo = false;
   try { $('v').srcObject = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false }); }
   catch (err) { noVideo = true; } // 영상이 안 되어도 검정 바탕 + 방향센서로 계속
-  S.cam = true; showBg(); setFov(camFov); $('bCam').classList.add('on'); $('bCam').textContent = '카메라 끄기';
+  S.cam = true; showBg(); getGps(true); // 카메라가 켜지면 위치도 자동으로 잡음 setFov(camFov); $('bCam').classList.add('on'); $('bCam').textContent = '카메라 끄기';
   addEventListener('deviceorientationabsolute', onOrient); addEventListener('deviceorientation', onOrient);
   hint((noVideo ? '카메라 영상은 켜지 못해 검정 바탕으로 보여 드립니다(카메라 허용을 확인해 주세요). ' : '') + '처음에는 폰을 8자 모양으로 크게 몇 번 돌려 주세요(나침반이 정확해집니다). 별이 어긋나면 화면을 끌거나, 천체를 눌러 "십자에 맞추기"를 하세요.');
   setTimeout(() => { if (!sv) hint('방향센서 값이 오지 않습니다(PC에서는 정상). 폰에서 열어 주세요.'); }, 2500);
@@ -832,11 +832,17 @@ $('bFull').onclick = () => {
 $('bCam').onclick = () => S.cam ? camOff() : camOn();
 $('bReset').onclick = e => { S.offAz = S.offAlt = 0; e.target.style.display = 'none'; saveCal(); if (sv) applyOrientation0(); };
 $('bNow').onclick = () => { S.offMin = 0; $('sl').value = 0; draw(); };
-$('bGps').onclick = () => {
-  if (!navigator.geolocation) { alert('이 브라우저는 위치 기능이 없습니다.'); return; }
-  navigator.geolocation.getCurrentPosition(p => { S.lat = p.coords.latitude; S.lon = p.coords.longitude; S.place = '내 위치'; draw(); },
-    () => alert('위치를 가져오지 못했습니다. 위치 허용을 확인해 주세요.'), { enableHighAccuracy: true, timeout: 10000 });
-};
+function getGps(silent) { // silent: 열 때 자동 호출(실패해도 조용히 기존 위치 유지)
+  if (!navigator.geolocation) { if (!silent) alert('이 브라우저는 위치 기능이 없습니다.'); return; }
+  navigator.geolocation.getCurrentPosition(p => {
+    S.lat = p.coords.latitude; S.lon = p.coords.longitude; S.place = '내 위치'; draw();
+    try { localStorage.setItem('starloc', JSON.stringify([S.lat, S.lon])); } catch (e) { }
+  }, () => { if (!silent) alert('위치를 가져오지 못했습니다. 위치 허용을 확인해 주세요.'); }, { enableHighAccuracy: true, timeout: 10000, maximumAge: silent ? 600000 : 0 });
+}
+$('bGps').onclick = () => getGps(false);
+// 마지막으로 가져온 위치를 먼저 쓰고, 터치 폰에서 그냥 열면 새 위치를 자동으로 가져옴
+try { const l = JSON.parse(localStorage.getItem('starloc') || 'null'); if (l && isFinite(l[0]) && isFinite(l[1]) && !location.hash) { S.lat = l[0]; S.lon = l[1]; S.place = '내 위치(저장값)'; } } catch (e) { }
+if (navigator.maxTouchPoints > 0 && !location.hash) getGps(true);
 setInterval(() => { if (!S.offMin) draw(); }, 30000);
 const sim = /sim=([-\d.]+),([-\d.]+),([-\d.]+)/.exec(location.hash); // 확인용: 가짜 센서값
 if (sim) { S.cam = false; setFov(62); applyOrientation(+sim[1], +sim[2], +sim[3]); }
@@ -846,14 +852,15 @@ resize();
 // 앱 설치 버튼: 크롬이면 바로 설치창, 카톡·다른 앱 안이면 크롬으로 넘김, 그 외는 방법 안내
 const SITE = 'https://mkkwak-cloud.github.io/starposition/';
 let instPrompt = null;
+if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => { });
 const ua = navigator.userAgent, inKakao = /KAKAOTALK/i.test(ua), inOther = /NAVER\(inapp|Instagram|FBAN|FBAV|Line\//i.test(ua);
-addEventListener('beforeinstallprompt', e => { e.preventDefault(); instPrompt = e; });
+addEventListener('beforeinstallprompt', e => { e.preventDefault(); instPrompt = e; if (/install=1/.test(location.search) && !isApp) hint('위쪽 "앱 설치" 버튼을 누르면 설치창이 뜹니다. "설치"를 누르면 홈 화면에 바로가기가 생깁니다.'); });
 addEventListener('appinstalled', () => { $('bInst').style.display = 'none'; hint('설치됐습니다. 홈 화면의 별자리 아이콘으로 열어 주세요.'); setTimeout(() => hint(''), 6000); });
 if (navigator.maxTouchPoints > 0 && !isApp) {
   $('bInst').style.display = '';
   $('bInst').onclick = async () => {
     if (instPrompt) { instPrompt.prompt(); await instPrompt.userChoice; instPrompt = null; return; }
-    if (inKakao) { location.href = 'kakaotalk://web/openExternal?url=' + encodeURIComponent(SITE); return; }
+    if (inKakao) { location.href = 'kakaotalk://web/openExternal?url=' + encodeURIComponent(SITE + '?install=1'); return; }
     if (inOther) { hint('이 앱 안에서는 설치가 안 됩니다. 메뉴에서 "다른 브라우저로 열기"를 눌러 크롬으로 열어 주세요.'); }
     else if (!/^https?:$/.test(location.protocol)) { location.href = SITE; return; }
     else if (/iphone|ipad|ipod/i.test(ua)) hint('아래 공유 버튼 → "홈 화면에 추가"를 눌러 주세요.');
