@@ -36,8 +36,6 @@ button.on{background:var(--accent);color:#04101f;border-color:var(--accent)}
 .info input[type=range]{flex:1;min-width:0;width:100%}
 #when{white-space:nowrap}
 .dim{color:var(--dim);font-size:13px}
-.inst{display:none;align-items:center;gap:8px;background:rgba(40,70,130,.9);border:1px solid var(--line);border-radius:12px;padding:8px 10px;margin-bottom:6px;font-size:13px;line-height:1.4}
-.inst span{flex:1}.inst button{padding:4px 10px}
 #when{font-weight:600}
 /* 가로로 돌려 화면 높이가 낮을 때: 설명을 숨기고 슬라이더를 나란히 놓아 하늘을 덜 가림 */
 @media (max-height:500px){
@@ -47,7 +45,6 @@ button.on{background:var(--accent);color:#04101f;border-color:var(--accent)}
   .info>*{flex:1 1 100%}
   .info .row{flex:1 1 260px;margin-top:0}
   #where{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px}
-  .inst{margin-bottom:2px}
 }
 </style>
 </head>
@@ -64,12 +61,12 @@ button.on{background:var(--accent);color:#04101f;border-color:var(--accent)}
   <button id="bNow">지금</button>
   <button id="bCam">카메라</button>
   <button id="bBg" style="display:none">검정 바탕</button>
+  <button id="bInst" style="display:none">앱 설치</button>
   <button id="bFull">전체화면</button>
   <button id="bFit" style="display:none">십자에 맞추기</button>
   <button id="bReset" style="display:none">보정 초기화</button>
 </div>
 <div class="info">
-  <div id="inst" class="inst"><span id="instT"></span><button id="instGo" style="display:none"></button><button id="instX">✕</button></div>
   <div id="where" class="dim"></div>
   <div class="row"><span id="when"></span><input id="sl" type="range" min="-720" max="720" step="5" value="0"></div>
   <div class="row"><span class="dim" style="white-space:nowrap">화면 넓이 <b id="fovT"></b></span><input id="fovSl" type="range" min="20" max="160" step="1"></div>
@@ -846,19 +843,23 @@ if (sim) { S.cam = false; setFov(62); applyOrientation(+sim[1], +sim[2], +sim[3]
 if (savedCal) { S.offAz = savedCal.offAz || 0; S.offAlt = savedCal.offAlt || 0; if (savedCal.camFov >= 20 && savedCal.camFov <= 160) camFov = savedCal.camFov; if (S.offAz || S.offAlt) $('bReset').style.display = ''; }
 setFov(S.fov);
 resize();
-// 설치 안내 띠: 앱으로 안 열었을 때만. 파일로 열었으면 인터넷 주소로 열도록 안내
+// 앱 설치 버튼: 크롬이면 바로 설치창, 카톡·다른 앱 안이면 크롬으로 넘김, 그 외는 방법 안내
 const SITE = 'https://mkkwak-cloud.github.io/starposition/';
-let instPrompt = null, instHide = false;
-try { instHide = localStorage.getItem('starinst') === 'no'; } catch (e) { }
-function showInst(t, btn, fn) { $('instT').textContent = t; const b = $('instGo'); b.style.display = btn ? '' : 'none'; if (btn) { b.textContent = btn; b.onclick = fn; } $('inst').style.display = 'flex'; }
-addEventListener('beforeinstallprompt', e => { e.preventDefault(); instPrompt = e; if (!isApp && !instHide) showInst('이 앱을 폰에 설치하면 주소창 없이 꽉 찬 화면으로 쓸 수 있습니다.', '설치', async () => { instPrompt.prompt(); await instPrompt.userChoice; $('inst').style.display = 'none'; }); });
-$('instX').onclick = () => { $('inst').style.display = 'none'; try { if (/^https?:$/.test(location.protocol)) localStorage.setItem('starinst', 'no'); } catch (e) { } };
+let instPrompt = null;
+const ua = navigator.userAgent, inKakao = /KAKAOTALK/i.test(ua), inOther = /NAVER\(inapp|Instagram|FBAN|FBAV|Line\//i.test(ua);
+addEventListener('beforeinstallprompt', e => { e.preventDefault(); instPrompt = e; });
+addEventListener('appinstalled', () => { $('bInst').style.display = 'none'; hint('설치됐습니다. 홈 화면의 별자리 아이콘으로 열어 주세요.'); setTimeout(() => hint(''), 6000); });
 if (navigator.maxTouchPoints > 0 && !isApp) {
-  if (!/^https:$/.test(location.protocol) && location.hostname !== 'localhost') showInst('이 방식(파일)으로 열면 카메라·방향센서가 막힙니다. 인터넷 주소로 열어 주세요.', '주소로 열기', () => { location.href = SITE; });
-  else if (!instHide) {
-    if (/iphone|ipad|ipod/i.test(navigator.userAgent)) showInst('앱처럼 쓰려면: 아래 공유 버튼 → "홈 화면에 추가".');
-    else if (!instPrompt) showInst('앱처럼 쓰려면: 브라우저 메뉴(⋮) → "홈 화면에 추가" 또는 "앱 설치".');
-  }
+  $('bInst').style.display = '';
+  $('bInst').onclick = async () => {
+    if (instPrompt) { instPrompt.prompt(); await instPrompt.userChoice; instPrompt = null; return; }
+    if (inKakao) { location.href = 'kakaotalk://web/openExternal?url=' + encodeURIComponent(SITE); return; }
+    if (inOther) { hint('이 앱 안에서는 설치가 안 됩니다. 메뉴에서 "다른 브라우저로 열기"를 눌러 크롬으로 열어 주세요.'); }
+    else if (!/^https?:$/.test(location.protocol)) { location.href = SITE; return; }
+    else if (/iphone|ipad|ipod/i.test(ua)) hint('아래 공유 버튼 → "홈 화면에 추가"를 눌러 주세요.');
+    else hint('브라우저 메뉴(⋮) → "홈 화면에 추가" 또는 "앱 설치"를 눌러 주세요. (설치 창은 크롬에서 바로 뜹니다)');
+    setTimeout(() => hint(''), 9000);
+  };
 }
 // 폰(터치 기기)에서 그냥 열면 자동으로 카메라+센서를 켠다. 아이폰은 허용창 때문에 첫 터치가 필요.
 if (navigator.maxTouchPoints > 0 && !location.hash) {
