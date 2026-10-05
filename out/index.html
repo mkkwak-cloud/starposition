@@ -608,7 +608,7 @@ let instWait = null; // 눌렀는데 설치창 준비가 아직이면, 준비되
 async function runPrompt() {
   const e = instPrompt; instPrompt = null; instWait = null; e.prompt();
   const r = await e.userChoice;
-  if (installMode && r.outcome === 'accepted') { ovDone('설치됐습니다! 홈 화면(앱 목록)의 별자리 아이콘으로 여세요.'); try { window.close(); } catch (er) { } } // 크롬 화면은 보통 안 닫히니 완료 안내를 남김
+  if (installMode && r.outcome === 'accepted') { ovDone('설치가 끝났습니다! 이 크롬 화면은 닫고, 홈 화면의 별자리 아이콘(앱)으로 시작해 주세요.'); try { window.close(); } catch (er) { } } // 크롬 화면은 보통 안 닫히니 완료 안내를 남김
 }
 function doInstall(onFail) {
   if (instPrompt) return runPrompt();
@@ -621,7 +621,7 @@ if (inKakao && !isApp && !/install=1/.test(location.search)) {
   let tried = false; try { tried = sessionStorage.getItem('kakaoGo') === '1'; sessionStorage.setItem('kakaoGo', '1'); } catch (e) { }
   if (!tried) location.href = 'kakaotalk://web/openExternal?url=' + encodeURIComponent(SITE + '?install=1');
 }
-addEventListener('appinstalled', () => { if (installMode) ovDone('설치됐습니다! 홈 화면(앱 목록)의 별자리 아이콘으로 여세요.'); $('bInst').style.display = 'none'; hint('설치됐습니다. 홈 화면의 별자리 아이콘으로 열어 주세요.'); setTimeout(() => hint(''), 6000); });
+addEventListener('appinstalled', () => { if (installMode) ovDone('설치가 끝났습니다! 이 크롬 화면은 닫고, 홈 화면의 별자리 아이콘(앱)으로 시작해 주세요.'); $('bInst').style.display = 'none'; hint('설치됐습니다. 홈 화면의 별자리 아이콘으로 열어 주세요.'); setTimeout(() => hint(''), 6000); });
 if (installMode) {
   $('ov').style.display = 'flex';
   $('ovGo').onclick = () => inKakao ? (location.href = 'kakaotalk://web/openExternal?url=' + encodeURIComponent(SITE + '?install=1')) : doInstall(() => { $('ovT').textContent = (/iphone|ipad|ipod/i.test(ua) ? '아이폰은 아래 공유 버튼 → "홈 화면에 추가"를 눌러 주세요.' : '이 브라우저에서는 설치창을 바로 띄울 수 없습니다. 이미 설치했다면 홈 화면의 별자리 아이콘으로 여세요. 아직이면 브라우저 메뉴(⋮) → "홈 화면에 추가" 또는 "앱 설치"를 눌러 주세요.'); });
@@ -642,7 +642,7 @@ if (navigator.maxTouchPoints > 0 && !isApp) {
 }
 // 이미 설치돼 있으면 크롬은 설치창을 다시 띄우지 않으므로, 알아보고 안내(지원하는 브라우저에서만)
 if (navigator.getInstalledRelatedApps && !isApp) navigator.getInstalledRelatedApps().then(a => {
-  if (a && a.length && installMode) ovDone('이미 설치돼 있습니다. 홈 화면(앱 목록)의 별자리 아이콘으로 여세요.');
+  if (a && a.length && installMode) ovDone('이미 설치돼 있습니다. 이 크롬 화면은 닫고, 홈 화면의 별자리 아이콘(앱)으로 시작해 주세요.');
   else if (a && a.length) { $('bInst').style.display = 'none'; hint('이미 설치돼 있습니다. 홈 화면(앱 목록)의 별자리 아이콘으로 열어 주세요.'); setTimeout(() => hint(''), 8000); }
 }).catch(() => { });
 // 폰(터치 기기)에서 그냥 열면 자동으로 카메라+센서를 켠다. 터치가 있어야 허용되는 기기는 첫 터치에 켠다.
